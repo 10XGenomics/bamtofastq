@@ -13,3 +13,4 @@ shardio = { git = "ssh://git@github.com/10XDev/rust-shardio.git" }
 bincode = "*"
 itertools = "*"
 regex = "*"
+tempfile = "*"

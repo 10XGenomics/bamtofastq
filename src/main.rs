@@ -6,6 +6,7 @@ extern crate bincode;
 extern crate itertools;
 extern crate rustc_serialize;
 extern crate regex;
+extern crate tempfile;
 
 use std::io::{Write, BufWriter, Result};
 use std::fs::File;
@@ -15,6 +16,8 @@ use std::hash::{Hash, SipHasher, Hasher};
 
 use std::collections::HashMap;  
 use itertools::Itertools;
+
+use tempfile::NamedTempFile;
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -52,6 +55,7 @@ struct Args {
     flag_lr20: bool,
 }
 
+/// A Fastq record ready to be written
 #[derive(Debug, RustcEncodable, RustcDecodable, PartialEq, PartialOrd, Eq, Ord)]
 struct FqRecord {
     head: Vec<u8>,
@@ -59,12 +63,14 @@ struct FqRecord {
     qual: Vec<u8>
 }
 
+/// Which read in a pair we have
 #[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable, PartialOrd, Ord, PartialEq, Eq)]
 enum ReadNum {
     R1,
     R2
 }
 
+/// Internally serialized read. Used for re-uniting discordant read pairs
 #[derive(Debug, RustcEncodable, RustcDecodable, PartialOrd, Ord, Eq, PartialEq)]
 struct SerFq {
     rec: FqRecord,
@@ -73,6 +79,7 @@ struct SerFq {
     i2: Option<FqRecord>,
 }
 
+/// Serialization of SerFq structs
 #[derive(Clone)]
 pub struct SerFqImpl {}
 
@@ -88,8 +95,7 @@ impl Serializer<SerFq> for SerFqImpl {
     }
 }
 
-
-
+/// Shard SerFq structs based on a hash of the head string
 impl Shardable for SerFq {
     fn shard(&self) -> usize {
         let mut s = SipHasher::new();
@@ -98,6 +104,9 @@ impl Shardable for SerFq {
     }
 }
 
+/// Entry in the conversion spec from a BAM record back to a read.
+/// Each read can be composed of data from a pair of tags (tag w/ sequence, tag w/ qual),
+/// or a fixed-length sequence of Ns (with a default QV), or the sequence in the read.
 #[derive(Debug)]
 enum SpecEntry {
     Tags(String, String),
@@ -105,6 +114,8 @@ enum SpecEntry {
     Read,
 }
 
+/// Spec for converting from a BAM record back to reads. Empty vector indicates that this read doesn't exist
+/// in the output. The i1 and i2 reads should be buildable from tags in the R1 read. 
 struct FormatBamRecords {
     r1_spec: Vec<SpecEntry>,
     r2_spec: Vec<SpecEntry>,
@@ -112,7 +123,21 @@ struct FormatBamRecords {
     i2_spec: Vec<SpecEntry>,
 }
 
+pub fn complement(b: u8) -> u8 {
+    match b {
+        b'A' => b'T',
+        b'C' => b'G',
+        b'G' => b'C',
+        b'T' => b'A',
+        b'N' => b'N',
+        _ => panic!("unrecognized"),
+    }
+}
+
+/// Class that can convert a BAM record into Fastq sequences, given some conversion specs
 impl FormatBamRecords {
+
+    /// Read the conversion spec from the special @CO 10x_bam_to_fastq tags in the BAM header
     pub fn from_headers(reader: &bam::Reader) -> Option<FormatBamRecords> {
 
         let mut spec = Self::parse_spec(reader);
@@ -129,7 +154,7 @@ impl FormatBamRecords {
         }
     }
 
-    // hard-coded for gemcode BAM files
+    /// hard-coded spec for gemcode BAM files
     pub fn gemcode() -> FormatBamRecords {
 
         FormatBamRecords {
@@ -140,7 +165,7 @@ impl FormatBamRecords {
         }
     }
 
-    // Longranger 2.0 BAM files
+    // hard-coded specs for longranger 2.0 BAM files
     pub fn lr20() -> FormatBamRecords {
 
         FormatBamRecords {
@@ -151,7 +176,7 @@ impl FormatBamRecords {
         }
     } 
 
-
+    /// Parse the specs from BAM headers if available
     fn parse_spec(reader: &bam::Reader) -> HashMap<String, Vec<SpecEntry>> {
 
         // Example header line:
@@ -191,6 +216,7 @@ impl FormatBamRecords {
         spec
     } 
 
+    /// Convert a BAM record to a Fq record, for internal caching
     pub fn bam_rec_to_ser(&self, rec: &Record) -> SerFq {
         match (rec.is_first_in_template(), rec.is_last_in_template()) {
             (true, false) => {
@@ -214,6 +240,7 @@ impl FormatBamRecords {
         }
     }
 
+    /// Convert a BAM record to Fq record ready to be written
     pub fn bam_rec_to_fq(&self, rec: &Record, spec: &Vec<SpecEntry>) -> Result<FqRecord> {
 
         let mut head = Vec::new();
@@ -242,10 +269,22 @@ impl FormatBamRecords {
                     }
                 }
 
-                // The underlying read
                 &SpecEntry::Read => {
-                    r.extend_from_slice(rec.seq().as_bytes().as_slice());
-                    q.extend(rec.qual().iter().map(|x| x + 33));
+                    // The underlying read
+                    let mut seq = rec.seq().as_bytes();
+                    let mut qual: Vec<u8> = rec.qual().iter().map(|x| x + 33).collect();
+
+                    if rec.is_reverse() {
+                        seq.reverse();
+                        for b in seq.iter_mut() {
+                            *b = complement(*b);
+                        }
+
+                        qual.reverse();
+                    }
+
+                    r.extend(seq);
+                    q.extend(qual);
                 }
             }
         }
@@ -279,14 +318,16 @@ impl FormatBamRecords {
     }
 }
 
-
+/// Open Fastq files being written to
 struct FastqWriter<W: Write> {
     r1: W,
     r2: W,
     i1: Option<W>,
-    i2: Option<W>
+    i2: Option<W>,
+    total_written: usize,
 }
 
+/// Write sets of Fastq records to the open Fastq files
 impl<W: Write> FastqWriter<W> {
 
     pub fn write_rec(w: &mut W, rec: &FqRecord)  {
@@ -308,6 +349,8 @@ impl<W: Write> FastqWriter<W> {
     }
 
     pub fn write(&mut self, r1: &FqRecord, r2: &FqRecord, i1: &Option<FqRecord>, i2: &Option<FqRecord>) {
+        self.total_written += 1;
+
         FastqWriter::write_rec(&mut self.r1, r1);
         FastqWriter::write_rec(&mut self.r2, r2);
 
@@ -316,6 +359,7 @@ impl<W: Write> FastqWriter<W> {
     }
 }
 
+/// Read-pair cache. Let's us stream through the BAM and find nearby mates so we can write them out immediately
 struct RpCache {
     cache: HashMap<Vec<u8>, Record>
 }
@@ -327,8 +371,6 @@ impl RpCache {
     }
 
     pub fn cache_rec(&mut self, rec: Record) -> Option<(Record, Record)> {
-        //let qname = rec.qname();
-
         // If cache already has entry, we have a pair! Return both
         match self.cache.remove(rec.qname()) {
             Some(old_rec) => {
@@ -392,18 +434,20 @@ fn main() {
                 if args.flag_gemcode {
                     FormatBamRecords::gemcode()
                 } else if args.flag_lr20 {
-                    FormatBamRecords::lr20()
+                    FormatBamRecords::lr20()            
                 } else {
+                    // FIXME -- Paul add other constructors here
+
                     println!("Unrecognized 10x BAM file. For BAM files produced by older pipelines, use one of the following flags:");
                     println!("--gemcode   BAM files created with GemCode data using Longranger 1.0 - 1.3");
                     println!("--lr20      BAM files created with Longranger 2.0 using Chromium Genome data");
+                    // FIXME Paul -- document other casese here
                     println!("asdf");
                     return
                 }
             }
         }
     };
-
 
     let out_path = Path::new(&args.arg_output_path);
 
@@ -412,7 +456,7 @@ fn main() {
         Ok(_) => (),
     }
     
-
+    // open output files
     let r1_path = out_path.join(Path::new("r1.fastq.gz"));
     let r2_path = out_path.join(Path::new("r2.fastq.gz"));
     let i1_path = out_path.join(Path::new("i1.fastq.gz"));
@@ -423,20 +467,33 @@ fn main() {
         r2: make_writer(r2_path),
         i1: if formatter.i1_spec.len() > 0 { Some(make_writer(i1_path)) } else { None },
         i2: if formatter.i2_spec.len() > 0 { Some(make_writer(i2_path)) } else { None },
+        total_written: 0,
     };
 
 
-    {
+    // Temp file for hold unpaired reads. Will be cleaned up automatically.
+    let tmp_file = NamedTempFile::new().unwrap();
+
+    let total_read_pairs = {
+        // Cache for efficiently finding local read pairs
         let mut rp_cache = RpCache::new();
 
-        let mut  w: ShardWriteManager<SerFq, SerFqImpl> = ShardWriteManager::new(Path::new("temp"), 256, 2, SerFqImpl{});
+        // For chimeric read piars that are showing up in different places, we will write these to disk for later use
+        let w: ShardWriteManager<SerFq, SerFqImpl> = ShardWriteManager::new(tmp_file.path(), 256, 2, SerFqImpl{});
         let mut sender = w.get_sender();
+
+        // Count total R1s observed, so we can make sure we've preserved all read pairs
+        let mut total_read_pairs = 0;
 
         for _rec in bam.records() {
             let rec = _rec.unwrap();
 
             if rec.is_secondary() || rec.is_supplementary() {
                 continue;
+            }
+
+            if rec.is_first_in_template() {
+                total_read_pairs += 1;
             }
 
             // Save our current location
@@ -464,10 +521,12 @@ fn main() {
             let ser = formatter.bam_rec_to_ser(&orphan);
             sender.send(ser);
         }
-    }
+
+        total_read_pairs
+    };
 
     // Read back the shards, sort to find pairs, and write.
-    let reader = ShardReader::open("temp", SerFqImpl{});
+    let reader = ShardReader::open(tmp_file.path(), SerFqImpl{});
 
     for s in 0..reader.num_shards() {
         let mut data = reader.read_shard(s);
@@ -486,4 +545,7 @@ fn main() {
             fq.write(&r1.rec, &r2.rec, &r1.i1, &r1.i2);
         }
     }
+
+    // make sure we have the right number of output reads
+    println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs", total_read_pairs, fq.total_written);
 }
