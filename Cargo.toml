@@ -1,0 +1,15 @@
+[package]
+name = "bamtofastq"
+version = "0.1.0"
+authors = ["Patrick Marks <patrick@10xgenomics.com>"]
+
+[dependencies]
+docopt = "*"
+#rust-htslib = "*"
+rust-htslib = { path = "../rust-htslib" }
+flate2 = "*"
+rustc-serialize = "*"
+shardio = { git = "ssh://git@github.com/10XDev/rust-shardio.git" }
+bincode = "*"
+itertools = "*"
+regex = "*"
