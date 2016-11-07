@@ -14,7 +14,7 @@ use std::fs::create_dir;
 use std::path::Path;
 use std::hash::{Hash, SipHasher, Hasher};
 
-use std::collections::HashMap;  
+use std::collections::HashMap;
 use itertools::Itertools;
 
 use tempfile::NamedTempFile;
@@ -33,7 +33,7 @@ use regex::Regex;
 use docopt::Docopt;
 
 const USAGE: &'static str = "
-10x Genomics BAM to FASTQ converter. 
+10x Genomics BAM to FASTQ converter.
 
 Usage:
   bamtofastq [options] <bam> <output-path>
@@ -43,6 +43,7 @@ Usage:
 Options:
   --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
   --lr20               Convert a BAM produced by Longranger 2.0
+  --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
   -h --help            Show this screen.
   --version            Show version.
 ";
@@ -53,6 +54,7 @@ struct Args {
     arg_output_path: String,
     flag_gemcode: bool,
     flag_lr20: bool,
+    flag_cr11: bool,
 }
 
 /// A Fastq record ready to be written
@@ -115,7 +117,7 @@ enum SpecEntry {
 }
 
 /// Spec for converting from a BAM record back to reads. Empty vector indicates that this read doesn't exist
-/// in the output. The i1 and i2 reads should be buildable from tags in the R1 read. 
+/// in the output. The i1 and i2 reads should be buildable from tags in the R1 read.
 struct FormatBamRecords {
     r1_spec: Vec<SpecEntry>,
     r2_spec: Vec<SpecEntry>,
@@ -176,6 +178,17 @@ impl FormatBamRecords {
         }
     } 
 
+    // hard-coded specs for cellranger 1.0-1.1 BAM files
+    pub fn cr11() -> FormatBamRecords {
+
+        FormatBamRecords {
+            r1_spec: vec![SpecEntry::Read],
+            r2_spec: vec![SpecEntry::Tags("UR".to_string(), "UQ".to_string())],
+            i1_spec: vec![SpecEntry::Tags("CR".to_string(), "CQ".to_string())],
+            i2_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
+        }
+    }
+
     /// Parse the specs from BAM headers if available
     fn parse_spec(reader: &bam::Reader) -> HashMap<String, Vec<SpecEntry>> {
 
@@ -202,7 +215,7 @@ impl FormatBamRecords {
                             let mut parts = el.split(':');
                             let rtag = parts.next().unwrap().to_string();
                             let qtag = parts.next().unwrap().to_string();
-                            read_spec.push(SpecEntry::Tags(rtag, qtag));   
+                            read_spec.push(SpecEntry::Tags(rtag, qtag));
                         }
                     }
 
@@ -214,7 +227,7 @@ impl FormatBamRecords {
 
         println!("spec: {:?}", spec);
         spec
-    } 
+    }
 
     /// Convert a BAM record to a Fq record, for internal caching
     pub fn bam_rec_to_ser(&self, rec: &Record) -> SerFq {
@@ -434,15 +447,14 @@ fn main() {
                 if args.flag_gemcode {
                     FormatBamRecords::gemcode()
                 } else if args.flag_lr20 {
-                    FormatBamRecords::lr20()            
+                    FormatBamRecords::lr20()
+                } else if args.flag_cr11 {
+                    FormatBamRecords::cr11()        
                 } else {
-                    // FIXME -- Paul add other constructors here
-
                     println!("Unrecognized 10x BAM file. For BAM files produced by older pipelines, use one of the following flags:");
                     println!("--gemcode   BAM files created with GemCode data using Longranger 1.0 - 1.3");
                     println!("--lr20      BAM files created with Longranger 2.0 using Chromium Genome data");
-                    // FIXME Paul -- document other casese here
-                    println!("asdf");
+                    println!("--cr11      BAM files created with Cell Ranger 1.0-1.1 using Single Cell 3' v1 data");
                     return
                 }
             }
