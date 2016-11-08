@@ -12,7 +12,7 @@ extern crate tempdir;
 use std::io::{Write, BufWriter, Result};
 use std::fs::File;
 use std::fs::create_dir;
-use std::path::Path;
+use std::path::{PathBuf, Path};
 use std::hash::{Hash, SipHasher, Hasher};
 
 use std::collections::HashMap;
@@ -43,6 +43,8 @@ Usage:
   bamtofastq --version
 
 Options:
+  --sample=NAME        Sample name for FASTQ files [default=sample]
+  --reads-per-fastq=N  Number of reads per FASTQ chunk [default=200000000]
   --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
   --lr20               Convert a BAM produced by Longranger 2.0
   --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
@@ -54,6 +56,8 @@ Options:
 pub struct Args {
     arg_bam: String,
     arg_output_path: String,
+    flag_reads_per_fastq: usize,
+    flag_sample: String,
     flag_gemcode: bool,
     flag_lr20: bool,
     flag_cr11: bool,
@@ -111,7 +115,7 @@ impl Shardable for SerFq {
 /// Entry in the conversion spec from a BAM record back to a read.
 /// Each read can be composed of data from a pair of tags (tag w/ sequence, tag w/ qual),
 /// or a fixed-length sequence of Ns (with a default QV), or the sequence in the read.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum SpecEntry {
     Tags(String, String),
     Ns(usize),
@@ -120,6 +124,7 @@ enum SpecEntry {
 
 /// Spec for converting from a BAM record back to reads. Empty vector indicates that this read doesn't exist
 /// in the output. The i1 and i2 reads should be buildable from tags in the R1 read.
+#[derive(Clone)]
 struct FormatBamRecords {
     r1_spec: Vec<SpecEntry>,
     r2_spec: Vec<SpecEntry>,
@@ -205,7 +210,6 @@ impl FormatBamRecords {
                 Some(c) => {
                     let mut read_spec = Vec::new();
 
-                    println!("got de-bam header: {:?}", c);
                     let read = c.at(1).unwrap().to_string();
                     let tag_list = c.at(2).unwrap();
                     let spec_elems = tag_list.split(',');
@@ -377,19 +381,61 @@ impl FormatBamRecords {
     }
 }
 
+type BGW = BufWriter<GzEncoder<File>>;
+
 /// Open Fastq files being written to
-struct FastqWriter<W: Write> {
-    r1: W,
-    r2: W,
-    i1: Option<W>,
-    i2: Option<W>,
+struct FastqWriter {
+    formatter: FormatBamRecords,
+    out_path: PathBuf,
+    sample_name: String,
+
+    r1: BGW,
+    r2: BGW,
+    i1: Option<BGW>,
+    i2: Option<BGW>,
+
+    chunk_written: usize,
     total_written: usize,
+    n_chunks: usize,
+    reads_per_fastq: usize,
 }
 
 /// Write sets of Fastq records to the open Fastq files
-impl<W: Write> FastqWriter<W> {
+impl FastqWriter {
 
-    pub fn write_rec(w: &mut W, rec: &FqRecord)  {
+    pub fn new(out_path: &Path, formatter: FormatBamRecords, sample_name: String, reads_per_fastq: usize) -> FastqWriter {
+
+        // open output files
+        let (r1_path, r2_path, i1_path, i2_path) = Self::get_paths(&out_path, &sample_name, 0);
+        let r1 = Self::open_gzip_writer(r1_path);
+        let r2 = Self::open_gzip_writer(r2_path);
+        let i1 = if formatter.i1_spec.len() > 0 { Some(Self::open_gzip_writer(i1_path)) } else { None };
+        let i2 = if formatter.i2_spec.len() > 0 { Some(Self::open_gzip_writer(i2_path)) } else { None };
+
+        FastqWriter {
+            formatter: formatter,
+            out_path: out_path.to_path_buf(),
+            sample_name: sample_name,
+            r1: r1,
+            r2: r2,
+            i1: i1,
+            i2: i2,
+            n_chunks: 1,
+            total_written: 0,
+            chunk_written: 0,
+            reads_per_fastq: reads_per_fastq,
+        }
+    }
+
+    fn get_paths(out_path: &Path, sample_name: &str, n_files: usize) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+        let r1 = out_path.join(format!("{}_S1_L001_R1_{:03}.fastq.gz", sample_name, n_files+1));
+        let r2 = out_path.join(format!("{}_S1_L001_R2_{:03}.fastq.gz", sample_name, n_files+1));
+        let i1 = out_path.join(format!("{}_S1_L001_I1_{:03}.fastq.gz", sample_name, n_files+1));
+        let i2 = out_path.join(format!("{}_S1_L001_I2_{:03}.fastq.gz", sample_name, n_files+1));
+        (r1, r2, i1, i2)
+    }
+
+    pub fn write_rec(w: &mut BGW, rec: &FqRecord)  {
         w.write(b"@").unwrap();
         w.write(&rec.head).unwrap();
         w.write(b"\n").unwrap();
@@ -400,21 +446,42 @@ impl<W: Write> FastqWriter<W> {
         w.write(b"\n").unwrap();
     }
 
-    pub fn try_write_rec(w: &mut Option<W>, rec: &Option<FqRecord>) {
+    pub fn try_write_rec(w: &mut Option<BGW>, rec: &Option<FqRecord>) {
         match w {
             &mut Some(ref mut w) => match rec { &Some(ref r) => FastqWriter::write_rec(w, r), &None => panic!("setup error") },
             &mut None => ()
         }
     }
 
+    /// Write a set of fastq records
     pub fn write(&mut self, r1: &FqRecord, r2: &FqRecord, i1: &Option<FqRecord>, i2: &Option<FqRecord>) {
-        self.total_written += 1;
-
         FastqWriter::write_rec(&mut self.r1, r1);
         FastqWriter::write_rec(&mut self.r2, r2);
-
         FastqWriter::try_write_rec(&mut self.i1, i1);
         FastqWriter::try_write_rec(&mut self.i2, i2);
+        self.total_written += 1;
+        self.chunk_written += 1;
+
+        if self.chunk_written >= self.reads_per_fastq {
+            self.cycle_writers()
+        }
+    }
+
+    /// Open up a fresh output chunk
+    fn cycle_writers(&mut self) {
+        let (r1_path, r2_path, i1_path, i2_path) = Self::get_paths(&self.out_path, &self.sample_name, self.n_chunks);
+        self.r1 = Self::open_gzip_writer(r1_path);
+        self.r2 = Self::open_gzip_writer(r2_path);
+        self.i1 = if self.formatter.i1_spec.len() > 0 { Some(Self::open_gzip_writer(i1_path)) } else { None };
+        self.i2 = if self.formatter.i2_spec.len() > 0 { Some(Self::open_gzip_writer(i2_path)) } else { None };
+        self.n_chunks += 1;
+        self.chunk_written = 0;
+    }
+
+    fn open_gzip_writer<P: AsRef<Path>>(path: P) -> BufWriter<GzEncoder<File>> {
+        let f = File::create(path).unwrap();
+        let gz = GzEncoder::new(f, Compression::Fast);
+        BufWriter::new(gz)
     }
 }
 
@@ -470,13 +537,6 @@ impl RpCache {
     }
 }
 
-fn make_writer<P: AsRef<Path>>(path: P) -> BufWriter<GzEncoder<File>> {
-    let f = File::create(path).unwrap();
-    let gz = GzEncoder::new(f, Compression::Fast);
-    BufWriter::new(gz)
-}
-
-
 fn main() {
     let args: Args = Docopt::new(USAGE)
                          .and_then(|d| d.decode())
@@ -519,21 +579,9 @@ pub fn go(args: Args, cache_size: Option<usize>) {
         Ok(_) => (),
     }
     
-    // open output files
-    let r1_path = out_path.join(Path::new("r1.fastq.gz"));
-    let r2_path = out_path.join(Path::new("r2.fastq.gz"));
-    let i1_path = out_path.join(Path::new("i1.fastq.gz"));
-    let i2_path = out_path.join(Path::new("i2.fastq.gz"));
-
-    let fq = FastqWriter {
-        r1: make_writer(r1_path),
-        r2: make_writer(r2_path),
-        i1: if formatter.i1_spec.len() > 0 { Some(make_writer(i1_path)) } else { None },
-        i2: if formatter.i2_spec.len() > 0 { Some(make_writer(i2_path)) } else { None },
-        total_written: 0,
-    };
-
-
+    // prep output files
+    let fq = FastqWriter::new(out_path, formatter.clone(), args.flag_sample, args.flag_reads_per_fastq);
+ 
     if formatter.is_double_ended() {
         proc_double_ended(bam, formatter, fq, cache_size);
     } else {
@@ -542,7 +590,7 @@ pub fn go(args: Args, cache_size: Option<usize>) {
 }
 
 
-fn proc_double_ended<W: Write>(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqWriter<W>, cache_size: usize) {
+fn proc_double_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqWriter, cache_size: usize) {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
     let tmp_file = NamedTempFile::new().unwrap();
 
@@ -624,7 +672,7 @@ fn proc_double_ended<W: Write>(bam: bam::Reader, formatter: FormatBamRecords, mu
     println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs ({} cached)", total_read_pairs, fq.total_written, ncached);
 }
 
-fn proc_single_ended<W:Write>(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqWriter<W>) {
+fn proc_single_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqWriter) {
 
     let total_reads = {
         // Count total R1s observed, so we can make sure we've preserved all read pairs
@@ -819,6 +867,8 @@ mod tests {
             flag_gemcode: false,
             flag_lr20: false,
             flag_cr11: false,
+            flag_sample: "sample".to_string(),
+            flag_reads_per_fastq: 100000,
         };
 
         super::go(args, Some(2));
@@ -831,9 +881,9 @@ mod tests {
 
         let new_set = load_fastq_set(
             open_fastq_pair_iter(
-                tmp_path.join("r1.fastq.gz"), 
-                tmp_path.join("r2.fastq.gz"), 
-                Some(tmp_path.join("i1.fastq.gz"))));
+                tmp_path.join("sample_S1_L001_R1_001.fastq.gz"), 
+                tmp_path.join("sample_S1_L001_R2_001.fastq.gz"), 
+                Some(tmp_path.join("sample_S1_L001_I1_001.fastq.gz"))));
         
         compare_read_sets(orig_set, new_set);
     }
@@ -850,6 +900,8 @@ mod tests {
             flag_gemcode: false,
             flag_lr20: false,
             flag_cr11: false,
+            flag_sample: "sample".to_string(),
+            flag_reads_per_fastq: 100000,
         };
 
         super::go(args, Some(2));
@@ -862,9 +914,9 @@ mod tests {
 
         let new_set = load_fastq_set(
             open_fastq_pair_iter(
-                tmp_path.join("r1.fastq.gz"), 
-                tmp_path.join("r2.fastq.gz"), 
-                Some(tmp_path.join("i1.fastq.gz"))));
+                tmp_path.join("sample_S1_L001_R1_001.fastq.gz"), 
+                tmp_path.join("sample_S1_L001_R2_001.fastq.gz"), 
+                Some(tmp_path.join("sample_S1_L001_I1_001.fastq.gz"))));
         
         compare_read_sets(orig_set, new_set);
     }
