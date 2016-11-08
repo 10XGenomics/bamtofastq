@@ -7,6 +7,7 @@ extern crate itertools;
 extern crate rustc_serialize;
 extern crate regex;
 extern crate tempfile;
+extern crate tempdir;
 
 use std::io::{Write, BufWriter, Result};
 use std::fs::File;
@@ -18,6 +19,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 
 use tempfile::NamedTempFile;
+
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -49,7 +51,7 @@ Options:
 ";
 
 #[derive(Debug, RustcDecodable)]
-struct Args {
+pub struct Args {
     arg_bam: String,
     arg_output_path: String,
     flag_gemcode: bool,
@@ -109,7 +111,7 @@ impl Shardable for SerFq {
 /// Entry in the conversion spec from a BAM record back to a read.
 /// Each read can be composed of data from a pair of tags (tag w/ sequence, tag w/ qual),
 /// or a fixed-length sequence of Ns (with a default QV), or the sequence in the read.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum SpecEntry {
     Tags(String, String),
     Ns(usize),
@@ -195,8 +197,7 @@ impl FormatBamRecords {
         // Example header line:
         // @CO	10x_bam_to_fastq:R1(RX:QX,TR:TQ,SEQ:QUAL)
         let re = Regex::new(r"@CO\t10x_bam_to_fastq:(\S+)\((\S+)\)").unwrap();
-        let text = reader.header.text();
-        let text = text.unwrap();
+        let text = String::from_utf8(reader.header.text()).unwrap();
         let mut spec = HashMap::new();
 
         for l in text.lines() {
@@ -263,15 +264,34 @@ impl FormatBamRecords {
         let mut r = Vec::new();
         let mut q = Vec::new();
 
-        for item in spec {
+        for (idx, item) in spec.into_iter().enumerate() {
+
+            // It OK for the final tag in the spec to be missing from the read
+            let last_item = idx == spec.len() - 1;
+
             match item {
                 // Data from a tag
-                &SpecEntry::Tags(ref read_tag, ref qv_tag) => {                
-                    let rx = rec.aux(read_tag.as_bytes()).unwrap().string();
-                    r.extend_from_slice(rx);
+                &SpecEntry::Tags(ref read_tag, ref qv_tag) => {  
 
-                    let qx = rec.aux(qv_tag.as_bytes()).unwrap().string();
-                    q.extend_from_slice(qx);   
+                    let rx = rec.aux(read_tag.as_bytes());
+                    if rx.is_none() && last_item {
+                        continue;
+                    } else if rx.is_none() {
+                        panic!(format!("read: {:?} missing: {:?}", rec.qname(), read_tag));
+                    } else {
+                        let rx = rx.unwrap().string();
+                        r.extend_from_slice(rx);
+                    }
+
+                    let qx = rec.aux(qv_tag.as_bytes());
+                    if qx.is_none() && last_item {
+                        continue;
+                    } else if qx.is_none() {
+                        panic!(format!("read: {:?} missing: {:?}", rec.qname(), qv_tag));
+                    } else {
+                        let qx = qx.unwrap().string();
+                        q.extend_from_slice(qx);   
+                    }
                 },
 
                 // Just hardcode some Ns -- for cases where we didn't retain the required data
@@ -328,6 +348,32 @@ impl FormatBamRecords {
         };
 
         Ok((r1, r2, i1, i2))
+    }
+
+
+    pub fn format_read(&self, rec: &Record) -> Result<(FqRecord, FqRecord, Option<FqRecord>, Option<FqRecord>)> {
+        let r1 = self.bam_rec_to_fq(rec, &self.r1_spec).unwrap();
+        let r2 = self.bam_rec_to_fq(rec, &self.r2_spec).unwrap();
+
+        let i1 = if self.i1_spec.len() > 0 {
+             Some(self.bam_rec_to_fq(rec, &self.i1_spec).unwrap())
+        } else {
+            None
+        };
+
+        let i2 = if self.i2_spec.len() > 0 {
+             Some(self.bam_rec_to_fq(rec, &self.i2_spec).unwrap())
+        } else {
+            None
+        };
+
+        Ok((r1, r2, i1, i2))
+    }
+
+    /// A spec implies double-ended reads if both the R1 and R2 reads generate different BAM records.
+    /// If not the R1 and R2 sequences can be derived from a single BAM entry.
+    pub fn is_double_ended(&self) -> bool {
+        self.r1_spec.contains(&SpecEntry::Read) && self.r2_spec.contains(&SpecEntry::Read)
     }
 }
 
@@ -435,8 +481,13 @@ fn main() {
     let args: Args = Docopt::new(USAGE)
                          .and_then(|d| d.decode())
                          .unwrap_or_else(|e| e.exit());
+    go(args, None);
+}                
 
 
+pub fn go(args: Args, cache_size: Option<usize>) {
+
+    let cache_size = cache_size.unwrap_or(100000);
     let bam = bam::Reader::new(&args.arg_bam).ok().expect("Error opening BAM file");
 
     let formatter = {
@@ -464,7 +515,7 @@ fn main() {
     let out_path = Path::new(&args.arg_output_path);
 
     match create_dir(&out_path) {
-        Err(msg) => println!("Couldn't create output directory: {:?}.  Error: {}", out_path, msg),
+        Err(msg) => { println!("Couldn't create output directory: {:?}.  Error: {}", out_path, msg); return},
         Ok(_) => (),
     }
     
@@ -474,7 +525,7 @@ fn main() {
     let i1_path = out_path.join(Path::new("i1.fastq.gz"));
     let i2_path = out_path.join(Path::new("i2.fastq.gz"));
 
-    let mut fq = FastqWriter {
+    let fq = FastqWriter {
         r1: make_writer(r1_path),
         r2: make_writer(r2_path),
         i1: if formatter.i1_spec.len() > 0 { Some(make_writer(i1_path)) } else { None },
@@ -483,6 +534,15 @@ fn main() {
     };
 
 
+    if formatter.is_double_ended() {
+        proc_double_ended(bam, formatter, fq, cache_size);
+    } else {
+        proc_single_ended(bam, formatter, fq);
+    }
+}
+
+
+fn proc_double_ended<W: Write>(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqWriter<W>, cache_size: usize) {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
     let tmp_file = NamedTempFile::new().unwrap();
 
@@ -521,7 +581,7 @@ fn main() {
             }
 
             // If cache gets too big, clear out stragglers & serialize for later
-            if rp_cache.len() > 1000000 {
+            if rp_cache.len() > cache_size {
                 for orphan in rp_cache.clear_orphans(tid, pos) {
                     let ser = formatter.bam_rec_to_ser(&orphan);
                     sender.send(ser);
@@ -540,6 +600,7 @@ fn main() {
     // Read back the shards, sort to find pairs, and write.
     let reader = ShardReader::open(tmp_file.path(), SerFqImpl{});
 
+    let mut ncached = 0;
     for s in 0..reader.num_shards() {
         let mut data = reader.read_shard(s);
         data.sort();
@@ -555,9 +616,256 @@ fn main() {
             let r1 = item_vec.swap_remove(0);
             let r2 = item_vec.swap_remove(0);
             fq.write(&r1.rec, &r2.rec, &r1.i1, &r1.i2);
+            ncached += 1;
         }
     }
 
     // make sure we have the right number of output reads
-    println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs", total_read_pairs, fq.total_written);
+    println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs ({} cached)", total_read_pairs, fq.total_written, ncached);
+}
+
+fn proc_single_ended<W:Write>(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqWriter<W>) {
+
+    let total_reads = {
+        // Count total R1s observed, so we can make sure we've preserved all read pairs
+        let mut total_reads = 0;
+
+        for _rec in bam.records() {
+            let rec = _rec.unwrap();
+
+            if rec.is_secondary() || rec.is_supplementary() {
+                continue;
+            }
+
+            total_reads += 1;
+
+            let (fq1, fq2, fq_i1, fq_i2) = formatter.format_read(&rec).unwrap();
+            fq.write(&fq1, &fq2, &fq_i1, &fq_i2);
+        }
+
+        total_reads
+    };
+
+    // make sure we have the right number of output reads
+    println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs", total_reads, fq.total_written);
+}
+
+#[cfg(test)]
+mod tests {
+    use tempdir;
+    use std::path::Path;
+    use super::*;
+    use std::fs::{File};
+    use std::io::{Read, BufRead, BufReader, Lines};
+    use std::collections::HashMap;
+    use std::boxed::Box;
+    use flate2::read::GzDecoder;
+
+    /// Head, Seq, Qual from single FASTQ
+    type FqRec = (Vec<u8>, Vec<u8>, Vec<u8>);
+
+    /// R1, R2, optional SI
+    type RawReadSet = (FqRec, FqRec, Option<FqRec>);
+
+    /// Read a single FqRec from a line 
+    pub fn get_fastq_item<R: BufRead>(lines: &mut Lines<R>) -> Option<FqRec>{
+        match lines.next() {
+            Some(head) => {
+                let r1 = lines.next().unwrap().unwrap().into_bytes();
+                let _  = lines.next().unwrap().unwrap().into_bytes();
+                let q1 = lines.next().unwrap().unwrap().into_bytes();
+
+                // trim after first space of head
+                let head_str = head.unwrap();
+                let mut split = head_str.split_whitespace();
+                let trim_head = split.next().unwrap().to_string().into_bytes();
+
+                Some((trim_head, r1, q1))
+            },
+            None => None
+        }
+    }
+
+    pub struct FastqPairIter {
+        r1: Lines<BufReader<Box<Read>>>,
+        r2: Lines<BufReader<Box<Read>>>,
+        si: Option<Lines<BufReader<Box<Read>>>>,
+    }
+
+    pub fn open_w_gz<P: AsRef<Path>>(p: P) -> Box<Read> {
+        let r = File::open(p.as_ref()).unwrap();
+
+        if p.as_ref().extension().unwrap() == "gz" {
+            Box::new(GzDecoder::new(r).unwrap())
+        } else {
+            Box::new(r)
+        }
+    }
+
+
+    pub fn open_fastq_pair_iter<P: AsRef<Path>>(r1: P, r2: P, si: Option<P>) -> Box<Iterator<Item=RawReadSet>> {
+        Box::new(
+        FastqPairIter::init(
+            open_w_gz(r1),
+            open_w_gz(r2),
+            si.map(|si| open_w_gz(si)),
+        ))
+    }
+
+    impl FastqPairIter {
+        pub fn init(r1: Box<Read>, r2: Box<Read>, si: Option<Box<Read>>) -> FastqPairIter {
+
+            FastqPairIter {
+                r1: BufReader::new(r1).lines(),
+                r2: BufReader::new(r2).lines(),
+                si: si.map(|x| BufReader::new(x).lines()),
+            }
+        }
+    }
+
+    impl Iterator for FastqPairIter {
+        type Item = RawReadSet;
+
+        fn next(&mut self) -> Option<RawReadSet> {
+
+            match get_fastq_item(&mut self.r1) {
+                Some(f_r1) => {
+                    let f_r2 = get_fastq_item(&mut self.r2).unwrap();
+                    
+                    let f_si = self.si.as_mut().map(|_si| get_fastq_item(_si).unwrap());
+                    Some((f_r1, f_r2, f_si))
+                }
+                None => None,
+            }
+        }
+    }
+
+    pub struct InterleavedFastqPairIter {
+        ra: Lines<BufReader<Box<Read>>>,
+        si: Option<Lines<BufReader<Box<Read>>>>,
+    }
+
+    pub fn open_interleaved_fastq_pair_iter<P: AsRef<Path>>(ra: P, si: Option<P>) -> Box<Iterator<Item=RawReadSet>> {
+        Box::new(
+        InterleavedFastqPairIter::init(
+            open_w_gz(ra),
+            si.map(|si| open_w_gz(si)),
+        ))
+    }
+
+    impl InterleavedFastqPairIter {
+
+        pub fn init(ra: Box<Read>, si: Option<Box<Read>>) -> InterleavedFastqPairIter {
+            InterleavedFastqPairIter {
+                ra: BufReader::new(ra).lines(),
+                si: si.map(|x| BufReader::new(x).lines()),
+            }
+        }
+    }
+
+    impl Iterator for InterleavedFastqPairIter {
+        type Item = RawReadSet;
+
+        fn next(&mut self) -> Option<RawReadSet> {
+
+            match get_fastq_item(&mut self.ra) {
+                Some(f_r1) => {
+                    let f_r2 = get_fastq_item(&mut self.ra).unwrap();
+                    let f_si = self.si.as_mut().map(|_si| get_fastq_item(_si).unwrap());
+                    Some((f_r1, f_r2, f_si))
+                }
+                None => None,
+            }
+        }
+    }
+
+    type ReadSet = HashMap<Vec<u8>, RawReadSet>;
+
+    pub fn load_fastq_set<I: Iterator<Item=RawReadSet>>(iter: I) -> ReadSet {
+        let mut reads = ReadSet::new();
+
+        for r in iter {
+            reads.insert((r.0).0.clone(), r);
+        }
+
+        reads
+    }
+
+    pub fn compare_read_sets(orig_set: ReadSet, new_set: ReadSet) {
+        assert_eq!(orig_set.len(), new_set.len());
+
+        let mut keys1: Vec<Vec<u8>> = orig_set.keys().cloned().collect();
+        keys1.sort();
+
+        let mut keys2: Vec<Vec<u8>> = new_set.keys().cloned().collect();
+        keys2.sort();
+
+        for (k1, k2) in keys1.iter().zip(keys2.iter()) {
+            assert_eq!(k1, k2);
+            assert_eq!(orig_set.get(k1), new_set.get(k2));
+        }
+
+        assert_eq!(orig_set, new_set);
+    }
+
+    #[test]
+    fn test_lr21() {
+        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tmp_path = tempdir.path().join("outs");
+
+        let args = Args {
+            arg_bam: "test/lr21.bam".to_string(),
+            arg_output_path: tmp_path.to_str().unwrap().to_string(),
+            flag_gemcode: false,
+            flag_lr20: false,
+            flag_cr11: false,
+        };
+
+        super::go(args, Some(2));
+
+        let true_fastq_read = open_interleaved_fastq_pair_iter(
+            "test/crg-tiny-fastq-2.0.0/read-RA_si-GTTGCAGC_lane-001-chunk-001.fastq.gz", 
+            Some("test/crg-tiny-fastq-2.0.0/read-I1_si-GTTGCAGC_lane-001-chunk-001.fastq.gz"));
+
+        let orig_set = load_fastq_set(true_fastq_read);
+
+        let new_set = load_fastq_set(
+            open_fastq_pair_iter(
+                tmp_path.join("r1.fastq.gz"), 
+                tmp_path.join("r2.fastq.gz"), 
+                Some(tmp_path.join("i1.fastq.gz"))));
+        
+        compare_read_sets(orig_set, new_set);
+    }
+
+
+    #[test]
+    fn test_cr12() {
+        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tmp_path = tempdir.path().join("outs");
+
+        let args = Args {
+            arg_bam: "test/cr12.bam".to_string(),
+            arg_output_path: tmp_path.to_str().unwrap().to_string(),
+            flag_gemcode: false,
+            flag_lr20: false,
+            flag_cr11: false,
+        };
+
+        super::go(args, Some(2));
+
+        let true_fastq_read = open_interleaved_fastq_pair_iter(
+            "test/cellranger-tiny-fastq-1.2.0/read-RA_si-TTTCATGA_lane-008-chunk-001.fastq.gz",
+            Some("test/cellranger-tiny-fastq-1.2.0/read-I1_si-TTTCATGA_lane-008-chunk-001.fastq.gz"));
+
+        let orig_set = load_fastq_set(true_fastq_read);
+
+        let new_set = load_fastq_set(
+            open_fastq_pair_iter(
+                tmp_path.join("r1.fastq.gz"), 
+                tmp_path.join("r2.fastq.gz"), 
+                Some(tmp_path.join("i1.fastq.gz"))));
+        
+        compare_read_sets(orig_set, new_set);
+    }
 }
