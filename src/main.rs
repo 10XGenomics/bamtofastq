@@ -202,7 +202,7 @@ impl FormatBamRecords {
         // Example header line:
         // @CO	10x_bam_to_fastq:R1(RX:QX,TR:TQ,SEQ:QUAL)
         let re = Regex::new(r"@CO\t10x_bam_to_fastq:(\S+)\((\S+)\)").unwrap();
-        let text = String::from_utf8(reader.header.text()).unwrap();
+        let text = String::from_utf8(Vec::from(reader.header.text())).unwrap();
         let mut spec = HashMap::new();
 
         for l in text.lines() {
