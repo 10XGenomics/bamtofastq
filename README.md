@@ -4,6 +4,23 @@ Tool for converting 10x BAMs produced by Cell Ranger or Long Ranger back to FAST
 The FASTQ files emitted by the tool should contain the same set of sequences that were input to the original pipeline run, although the order will
 not be preserved.  The FASTQs will be emitted into a directory structure that is compatible with the directories created by the 'mkfastq' tool.
 
+## Running
+
+10x Genomics BAM to FASTQ converter.
+
+Usage:
+  bamtofastq [options] <bam> <output-path>
+  bamtofastq (-h | --help)
+  bamtofastq --version
+
+Options:
+  --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 200000000]
+  --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
+  --lr20               Convert a BAM produced by Longranger 2.0
+  --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
+  -h --help            Show this screen.
+  --version            Show version.
+
 
 ## BAM file format support
 

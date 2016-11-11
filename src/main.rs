@@ -40,10 +40,23 @@ use docopt::Docopt;
 const USAGE: &'static str = "
 10x Genomics BAM to FASTQ converter.
 
+    Tool for converting 10x BAMs produced by Cell Ranger or Long Ranger back to
+    FASTQ files that can be used as inputs to re-run analysis. The FASTQ files
+    emitted by the tool should contain the same set of sequences that were
+    input to the original pipeline run, although the order will not be 
+    preserved.  The FASTQs will be emitted into a directory structure that is
+    compatible with the directories created by the 'mkfastq' tool.
+
+    10x BAMs produced by Long Ranger v2.1+ and Cell Ranger v1.2+ contain header
+    fields that permit automatic conversion to the correct FASTQ sequences.
+
+    Older 10x pipelines require one of the arguments listed below to indicate 
+    which pipeline created the BAM.
+
+
 Usage:
   bamtofastq [options] <bam> <output-path>
   bamtofastq (-h | --help)
-  bamtofastq --version
 
 Options:
   --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 200000000]
@@ -51,7 +64,6 @@ Options:
   --lr20               Convert a BAM produced by Longranger 2.0
   --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
   -h --help            Show this screen.
-  --version            Show version.
 ";
 
 #[derive(Debug, RustcDecodable)]
