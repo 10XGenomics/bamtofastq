@@ -502,6 +502,16 @@ impl FastqManager {
     pub fn total_written(&self) -> usize {
         self.writers.iter().map(|(_, ref w)| w.total_written).sum()
     }
+
+    pub fn paths(&self) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
+        let mut r = Vec::new();
+
+        for (_, w) in self.writers.iter() {
+            r.extend(w.path_sets.clone());
+        }
+
+        r
+    }
 }
 
 
@@ -521,6 +531,7 @@ struct FastqWriter {
     total_written: usize,
     n_chunks: usize,
     reads_per_fastq: usize,
+    path_sets: Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>,
 }
 
 /// Write sets of Fastq records to the open Fastq files
@@ -529,18 +540,18 @@ impl FastqWriter {
     pub fn new(out_path: &Path, formatter: FormatBamRecords, sample_name: String, lane: u32, reads_per_fastq: usize) -> FastqWriter {
 
         // open output files
-        let (r1_path, r2_path, i1_path, i2_path) = Self::get_paths(&out_path, &sample_name, lane, 0);
-        let r1 = Self::open_gzip_writer(r1_path);
-        let r2 = Self::open_gzip_writer(r2_path);
-        let i1 = if formatter.i1_spec.len() > 0 { Some(Self::open_gzip_writer(i1_path)) } else { None };
-        let i2 = if formatter.i2_spec.len() > 0 { Some(Self::open_gzip_writer(i2_path)) } else { None };
+        let paths = Self::get_paths(&out_path, &sample_name, lane, 0, &formatter);
+        //let r1 = 
+        let r2 = Self::open_gzip_writer(&paths.1);
+        let i1 = paths.2.as_ref().map(|p| Self::open_gzip_writer(p));
+        let i2 = paths.3.as_ref().map(|p| Self::open_gzip_writer(p));
 
         FastqWriter {
             formatter: formatter,
             out_path: out_path.to_path_buf(),
             sample_name: sample_name,
             lane: lane,
-            r1: r1,
+            r1: Self::open_gzip_writer(&paths.0),
             r2: r2,
             i1: i1,
             i2: i2,
@@ -548,15 +559,19 @@ impl FastqWriter {
             total_written: 0,
             chunk_written: 0,
             reads_per_fastq: reads_per_fastq,
+            path_sets: vec![paths],
         }
     }
 
-    fn get_paths(out_path: &Path, sample_name: &str, lane: u32, n_files: usize) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    fn get_paths(out_path: &Path, sample_name: &str, lane: u32, n_files: usize, formatter: &FormatBamRecords) -> (PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>) {
         let r1 = out_path.join(format!("{}_S1_L{:03}_R1_{:03}.fastq.gz", sample_name, lane, n_files+1));
         let r2 = out_path.join(format!("{}_S1_L{:03}_R2_{:03}.fastq.gz", sample_name, lane, n_files+1));
         let i1 = out_path.join(format!("{}_S1_L{:03}_I1_{:03}.fastq.gz", sample_name, lane, n_files+1));
         let i2 = out_path.join(format!("{}_S1_L{:03}_I2_{:03}.fastq.gz", sample_name, lane, n_files+1));
-        (r1, r2, i1, i2)
+
+        (r1, r2, 
+        if formatter.i1_spec.len() > 0 { Some(i1) } else { None }, 
+        if formatter.i2_spec.len() > 0 { Some(i2) } else { None })
     }
 
     pub fn write_rec(w: &mut BGW, rec: &FqRecord)  {
@@ -593,13 +608,14 @@ impl FastqWriter {
 
     /// Open up a fresh output chunk
     fn cycle_writers(&mut self) {
-        let (r1_path, r2_path, i1_path, i2_path) = Self::get_paths(&self.out_path, &self.sample_name, self.lane, self.n_chunks);
-        self.r1 = Self::open_gzip_writer(r1_path);
-        self.r2 = Self::open_gzip_writer(r2_path);
-        self.i1 = if self.formatter.i1_spec.len() > 0 { Some(Self::open_gzip_writer(i1_path)) } else { None };
-        self.i2 = if self.formatter.i2_spec.len() > 0 { Some(Self::open_gzip_writer(i2_path)) } else { None };
+        let paths = Self::get_paths(&self.out_path, &self.sample_name, self.lane, self.n_chunks, &self.formatter);
+        self.r1 = Self::open_gzip_writer(&paths.0);
+        self.r2 = Self::open_gzip_writer(&paths.1);
+        self.i1 = paths.2.as_ref().map(|p| Self::open_gzip_writer(p));
+        self.i2 = paths.3.as_ref().map(|p| Self::open_gzip_writer(p));
         self.n_chunks += 1;
         self.chunk_written = 0;
+        self.path_sets.push(paths);
     }
 
     fn open_gzip_writer<P: AsRef<Path>>(path: P) -> BufWriter<GzEncoder<File>> {
@@ -669,7 +685,7 @@ fn main() {
 }                
 
 
-pub fn go(args: Args, cache_size: Option<usize>) {
+pub fn go(args: Args, cache_size: Option<usize>) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
 
     let cache_size = cache_size.unwrap_or(100000);
     let bam = bam::Reader::from_path(&args.arg_bam).ok().expect("Error opening BAM file");
@@ -690,7 +706,7 @@ pub fn go(args: Args, cache_size: Option<usize>) {
                     println!("--gemcode   BAM files created with GemCode data using Longranger 1.0 - 1.3");
                     println!("--lr20      BAM files created with Longranger 2.0 using Chromium Genome data");
                     println!("--cr11      BAM files created with Cell Ranger 1.0-1.1 using Single Cell 3' v1 data");
-                    return
+                    return vec![];
                 }
             }
         }
@@ -699,7 +715,7 @@ pub fn go(args: Args, cache_size: Option<usize>) {
     let out_path = Path::new(&args.arg_output_path);
 
     match create_dir(&out_path) {
-        Err(msg) => { println!("Couldn't create output directory: {:?}.  Error: {}", out_path, msg); return},
+        Err(msg) => { println!("Couldn't create output directory: {:?}.  Error: {}", out_path, msg); return vec![]},
         Ok(_) => (),
     }
     
@@ -708,14 +724,14 @@ pub fn go(args: Args, cache_size: Option<usize>) {
     let fq = FastqManager::new(out_path, formatter.clone(), "bamtofastq".to_string(), args.flag_reads_per_fastq);
  
     if formatter.is_double_ended() {
-        proc_double_ended(bam, formatter, fq, cache_size);
+        proc_double_ended(bam, formatter, fq, cache_size)
     } else {
-        proc_single_ended(bam, formatter, fq);
+        proc_single_ended(bam, formatter, fq)
     }
 }
 
 
-fn proc_double_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize) {
+fn proc_double_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
     let tmp_file = NamedTempFile::new().unwrap();
 
@@ -795,9 +811,10 @@ fn proc_double_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: Fast
 
     // make sure we have the right number of output reads
     println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs ({} cached)", total_read_pairs, fq.total_written(), ncached);
+    fq.paths()
 }
 
-fn proc_single_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqManager) {
+fn proc_single_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqManager) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
 
     let total_reads = {
         // Count total R1s observed, so we can make sure we've preserved all read pairs
@@ -821,6 +838,7 @@ fn proc_single_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: Fast
 
     // make sure we have the right number of output reads
     println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs", total_reads, fq.total_written());
+    fq.paths()
 }
 
 #[cfg(test)]
@@ -832,15 +850,12 @@ mod tests {
 
     type ReadSet = HashMap<Vec<u8>, RawReadSet>;
 
-    pub fn load_fastq_set<I: Iterator<Item=RawReadSet>>(iter: I) -> ReadSet {
-        let mut reads = ReadSet::new();
-
+    pub fn load_fastq_set<I: Iterator<Item=RawReadSet>>(reads: &mut ReadSet, iter: I) {
         for r in iter {
             reads.insert((r.0).0.clone(), r);
         }
-
-        reads
     }
+
 
     pub fn compare_read_sets(orig_set: ReadSet, new_set: ReadSet) {
         assert_eq!(orig_set.len(), new_set.len());
@@ -870,25 +885,24 @@ mod tests {
             flag_gemcode: false,
             flag_lr20: false,
             flag_cr11: false,
-            flag_sample: "sample".to_string(),
             flag_reads_per_fastq: 100000,
         };
 
-        super::go(args, Some(2));
+        let out_path_sets = super::go(args, Some(2));
 
         let true_fastq_read = open_interleaved_fastq_pair_iter(
             "test/crg-tiny-fastq-2.0.0/read-RA_si-GTTGCAGC_lane-001-chunk-001.fastq.gz", 
             Some("test/crg-tiny-fastq-2.0.0/read-I1_si-GTTGCAGC_lane-001-chunk-001.fastq.gz"));
 
-        let orig_set = load_fastq_set(true_fastq_read);
+        let mut orig_reads = ReadSet::new();
+        load_fastq_set(&mut orig_reads, true_fastq_read);
 
-        let new_set = load_fastq_set(
-            open_fastq_pair_iter(
-                tmp_path.join("sample_S1_L001_R1_001.fastq.gz"), 
-                tmp_path.join("sample_S1_L001_R2_001.fastq.gz"), 
-                Some(tmp_path.join("sample_S1_L001_I1_001.fastq.gz"))));
+        let mut output_reads = ReadSet::new();
+        for (r1, r2, i1, i2) in out_path_sets {
+            load_fastq_set(&mut output_reads, open_fastq_pair_iter(r1, r2, i1));
+        }
         
-        compare_read_sets(orig_set, new_set);
+        compare_read_sets(orig_reads, output_reads);
     }
 
 
@@ -903,24 +917,23 @@ mod tests {
             flag_gemcode: false,
             flag_lr20: false,
             flag_cr11: false,
-            flag_sample: "sample".to_string(),
             flag_reads_per_fastq: 100000,
         };
 
-        super::go(args, Some(2));
+        let out_path_sets = super::go(args, Some(2));
 
         let true_fastq_read = open_interleaved_fastq_pair_iter(
             "test/cellranger-tiny-fastq-1.2.0/read-RA_si-TTTCATGA_lane-008-chunk-001.fastq.gz",
             Some("test/cellranger-tiny-fastq-1.2.0/read-I1_si-TTTCATGA_lane-008-chunk-001.fastq.gz"));
 
-        let orig_set = load_fastq_set(true_fastq_read);
+        let mut orig_reads = ReadSet::new();
+        load_fastq_set(&mut orig_reads, true_fastq_read);
 
-        let new_set = load_fastq_set(
-            open_fastq_pair_iter(
-                tmp_path.join("sample_S1_L001_R1_001.fastq.gz"), 
-                tmp_path.join("sample_S1_L001_R2_001.fastq.gz"), 
-                Some(tmp_path.join("sample_S1_L001_I1_001.fastq.gz"))));
+       let mut output_reads = ReadSet::new();
+        for (r1, r2, i1, i2) in out_path_sets {
+            load_fastq_set(&mut output_reads, open_fastq_pair_iter(r1, r2, i1));
+        }
         
-        compare_read_sets(orig_set, new_set);
+        compare_read_sets(orig_reads, output_reads);
     }
 }
