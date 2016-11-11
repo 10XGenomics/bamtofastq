@@ -5,7 +5,7 @@ authors = ["Patrick Marks <patrick@10xgenomics.com>"]
 
 [dependencies]
 docopt = "*"
-rust-htslib = { git = "ssh://git@github.com/rust-bio/rust-htslib.git" }
+rust-htslib = "*"
 flate2 = "*"
 rustc-serialize = "*"
 shardio = { git = "ssh://git@github.com/10XDev/rust-shardio.git" }
@@ -14,3 +14,6 @@ itertools = "*"
 regex = "*"
 tempfile = "*"
 tempdir = "*"
+
+[dev-dependencies]
+fastq_10x = { path = "../rust-fastq-10x" }
