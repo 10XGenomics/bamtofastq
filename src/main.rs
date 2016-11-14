@@ -948,4 +948,52 @@ mod tests {
         
         compare_read_sets(orig_reads, output_reads);
     }
+
+    #[test]
+    fn test_cr12_v1() {
+        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tmp_path = tempdir.path().join("outs");
+
+        let args = Args {
+            arg_bam: "test/cr12-v1.bam".to_string(),
+            arg_output_path: tmp_path.to_str().unwrap().to_string(),
+            flag_gemcode: false,
+            flag_lr20: false,
+            flag_cr11: false,
+            flag_reads_per_fastq: 100000,
+        };
+
+        let out_path_sets = super::go(args, Some(2));
+
+        let true_fastq_read = open_interleaved_fastq_pair_iter(
+            "test/cellranger-3p-v1/read-RA_si-ACCAGTCC_lane-001-chunk-000.fastq.gz",
+            Some("test/cellranger-3p-v1/read-I1_si-ACCAGTCC_lane-001-chunk-000.fastq.gz"),
+        );
+
+        let mut orig_reads = ReadSet::new();
+        load_fastq_set(&mut orig_reads, true_fastq_read);
+
+       let mut output_reads = ReadSet::new();
+        for (r1, r2, i1, i2) in out_path_sets.clone() {
+            load_fastq_set(&mut output_reads, open_fastq_pair_iter(r1, r2, i1));
+        }
+        
+        compare_read_sets(orig_reads, output_reads);
+
+        // Separately test I1 & I2 as if they were the main reads.
+        let true_index_reads = open_fastq_pair_iter(
+            "test/cellranger-3p-v1/read-I1_si-ACCAGTCC_lane-001-chunk-000.fastq.gz",
+            "test/cellranger-3p-v1/read-I2_si-ACCAGTCC_lane-001-chunk-000.fastq.gz",
+            None);
+        let mut orig_index_reads = ReadSet::new();
+        load_fastq_set(&mut orig_index_reads, true_index_reads);
+
+
+        let mut output_index_reads = ReadSet::new();
+        for (_, _, i1, i2) in out_path_sets {
+            load_fastq_set(&mut output_index_reads, open_fastq_pair_iter(i1.unwrap(), i2.unwrap(), None));
+        }
+
+        compare_read_sets(orig_index_reads, output_index_reads);
+    }
 }
