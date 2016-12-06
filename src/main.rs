@@ -36,6 +36,7 @@ use shardio::shard::{Serializer, Shardable, ShardWriteManager, ShardReader};
 use regex::Regex;
 use docopt::Docopt;
 
+mod locus;
 
 const USAGE: &'static str = "
 10x Genomics BAM to FASTQ converter.
@@ -59,6 +60,7 @@ Usage:
   bamtofastq (-h | --help)
 
 Options:
+  --locus=<locus>      Optional. Only include read pairs mapping to locus. Use chrom:start-end format.
   --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 200000000]
   --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
   --lr20               Convert a BAM produced by Longranger 2.0
@@ -66,10 +68,11 @@ Options:
   -h --help            Show this screen.
 ";
 
-#[derive(Debug, RustcDecodable)]
+#[derive(Debug, RustcDecodable, Clone)]
 pub struct Args {
     arg_bam: String,
     arg_output_path: String,
+    flag_locus: Option<String>,
     flag_reads_per_fastq: usize,
     flag_gemcode: bool,
     flag_lr20: bool,
@@ -164,7 +167,7 @@ pub fn complement(b: u8) -> u8 {
 impl FormatBamRecords {
 
     /// Read the conversion spec from the special @CO 10x_bam_to_fastq tags in the BAM header
-    pub fn from_headers(reader: &bam::Reader) -> Option<FormatBamRecords> {
+    pub fn from_headers<R: bam::Read>(reader: &R) -> Option<FormatBamRecords> {
 
         let mut spec = Self::parse_spec(reader);
 
@@ -183,7 +186,7 @@ impl FormatBamRecords {
     }
 
     /// hard-coded spec for gemcode BAM files
-    pub fn gemcode(reader: &bam::Reader) -> FormatBamRecords {
+    pub fn gemcode<R: bam::Read>(reader: &R) -> FormatBamRecords {
 
         FormatBamRecords {
             rg_spec: Self::parse_rgs(reader),
@@ -195,7 +198,7 @@ impl FormatBamRecords {
     }
 
     // hard-coded specs for longranger 2.0 BAM files
-    pub fn lr20(reader: &bam::Reader) -> FormatBamRecords {
+    pub fn lr20<R: bam::Read>(reader: &R) -> FormatBamRecords {
 
         FormatBamRecords {
             rg_spec: Self::parse_rgs(reader),
@@ -207,7 +210,7 @@ impl FormatBamRecords {
     } 
 
     // hard-coded specs for cellranger 1.0-1.1 BAM files
-    pub fn cr11(reader: &bam::Reader) -> FormatBamRecords {
+    pub fn cr11<R: bam::Read>(reader: &R) -> FormatBamRecords {
 
         FormatBamRecords {
             rg_spec: Self::parse_rgs(reader),
@@ -218,7 +221,7 @@ impl FormatBamRecords {
         }
     }
 
-    fn parse_rgs(reader: &bam::Reader) -> Option<HashMap<String, Rg>> {
+    fn parse_rgs<R: bam::Read>(reader: &R) -> Option<HashMap<String, Rg>> {
         let text = String::from_utf8(Vec::from(reader.header().as_bytes())).unwrap();
         let mut rg_items = HashMap::new();
 
@@ -264,7 +267,7 @@ impl FormatBamRecords {
 
 
     /// Parse the specs from BAM headers if available
-    fn parse_spec(reader: &bam::Reader) -> HashMap<String, Vec<SpecEntry>> {
+    fn parse_spec<R: bam::Read>(reader: &R) -> HashMap<String, Vec<SpecEntry>> {
 
         // Example header line:
         // @CO	10x_bam_to_fastq:R1(RX:QX,TR:TQ,SEQ:QUAL)
@@ -700,7 +703,23 @@ fn main() {
 pub fn go(args: Args, cache_size: Option<usize>) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
 
     let cache_size = cache_size.unwrap_or(100000);
-    let bam = bam::Reader::from_path(&args.arg_bam).ok().expect("Error opening BAM file");
+ 
+    match args.flag_locus {
+        Some(ref locus) => {
+            let loc = locus::Locus::from_str(locus).unwrap();
+            let mut bam = bam::IndexedReader::from_path(&args.arg_bam).ok().expect("Error opening BAM file");
+            let tid = bam.header().tid(loc.chrom.as_bytes()).expect("Unrecognized chromosome in locus");
+            bam.seek(tid, loc.start, loc.end);
+            inner(args.clone(), cache_size, bam)
+        },
+        None => {
+            let bam = bam::Reader::from_path(&args.arg_bam).ok().expect("Error opening BAM file");
+            inner(args, cache_size, bam)
+        }
+    }
+}
+
+pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
 
     let formatter = {
         let header_fmt = FormatBamRecords::from_headers(&bam);
@@ -743,7 +762,7 @@ pub fn go(args: Args, cache_size: Option<usize>) -> Vec<(PathBuf, PathBuf, Optio
 }
 
 
-fn proc_double_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
+fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
     let tmp_file = NamedTempFile::new().unwrap();
 
@@ -826,7 +845,7 @@ fn proc_double_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: Fast
     fq.paths()
 }
 
-fn proc_single_ended(bam: bam::Reader, formatter: FormatBamRecords, mut fq: FastqManager) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
+fn proc_single_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
 
     let total_reads = {
         // Count total R1s observed, so we can make sure we've preserved all read pairs
@@ -898,6 +917,7 @@ mod tests {
             flag_lr20: false,
             flag_cr11: false,
             flag_reads_per_fastq: 100000,
+            flag_locus: None,
         };
 
         let out_path_sets = super::go(args, Some(2));
@@ -930,6 +950,7 @@ mod tests {
             flag_lr20: false,
             flag_cr11: false,
             flag_reads_per_fastq: 100000,
+            flag_locus: None,
         };
 
         let out_path_sets = super::go(args, Some(2));
