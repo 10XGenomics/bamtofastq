@@ -905,6 +905,49 @@ mod tests {
         assert_eq!(orig_set, new_set);
     }
 
+    pub fn compare_read_sets_ignore_n(orig_set: ReadSet, new_set: ReadSet) {
+        assert_eq!(orig_set.len(), new_set.len());
+
+        let mut keys1: Vec<Vec<u8>> = orig_set.keys().cloned().collect();
+        keys1.sort();
+
+        let mut keys2: Vec<Vec<u8>> = new_set.keys().cloned().collect();
+        keys2.sort();
+
+        assert_eq!(keys1, keys2);
+
+
+        for (k1, k2) in keys1.iter().zip(keys2.iter()) {
+            assert_eq!(k1, k2);
+            compare_raw_read_sets_ignore_n(orig_set.get(k1).unwrap(), new_set.get(k2).unwrap());
+        }
+    }
+
+    // Relax the comparison for R1 -- if the v2 R1 read has 'N' or the v2 R1 qual has 'J', allow it through
+    // this handles the case where the 7 trimmed bases after the BC are were not retained in Long Ranger 2.0
+    // also ignore mismatches in the first 16bp, which are caused by the bug in LR 2.0 that caused the RX
+    // tag to have the corrected sequence rather than the raw sequence
+    pub fn compare_raw_read_sets_ignore_n(v1: &RawReadSet, v2: &RawReadSet) {
+        assert_eq!(&(v1.0).0, &(v2.0).0);
+        compare_bytes_ignore_n(&(v1.0).1, &(v2.0).1);
+        compare_bytes_ignore_n(&(v1.0).2, &(v2.0).2);
+
+        assert_eq!(v1.1, v2.1);
+        assert_eq!(v1.2, v2.2)
+    }
+
+
+    pub fn compare_bytes_ignore_n(v1: &Vec<u8>, v2: &Vec<u8>) {
+        assert_eq!(v1.len(), v2.len());
+        for (idx, (b1, b2)) in v1.iter().zip(v2).enumerate() {
+            if idx >= 16 && b1 != b2 && *b2 != b'N' && *b2 != b'J' {
+                println!("got mismatch at pos: {}", idx);
+                assert_eq!(v1, v2)
+            }
+        }
+    }
+
+
     #[test]
     fn test_lr21() {
         let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
@@ -937,6 +980,41 @@ mod tests {
         compare_read_sets(orig_reads, output_reads);
     }
 
+    #[test]
+    fn test_lr20() {
+        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tmp_path = tempdir.path().join("outs");
+
+        let args = Args {
+            arg_bam: "test/lr20.bam".to_string(),
+            arg_output_path: tmp_path.to_str().unwrap().to_string(),
+            flag_gemcode: false,
+            flag_lr20: true,
+            flag_cr11: false,
+            flag_reads_per_fastq: 100000,
+        };
+
+        let out_path_sets = super::go(args, Some(2));
+
+        let true_fastq_read = open_interleaved_fastq_pair_iter(
+            "test/crg-tiny-fastq-2.0.0/read-RA_si-GTTGCAGC_lane-001-chunk-001.fastq.gz", 
+            Some("test/crg-tiny-fastq-2.0.0/read-I1_si-GTTGCAGC_lane-001-chunk-001.fastq.gz"));
+
+        let mut orig_reads = ReadSet::new();
+        load_fastq_set(&mut orig_reads, true_fastq_read);
+
+        let mut output_reads = ReadSet::new();
+        for (r1, r2, i1, i2) in out_path_sets {
+            load_fastq_set(&mut output_reads, open_fastq_pair_iter(r1, r2, i1));
+        }
+        
+        // use special comparison method that ignores N's in R1
+        // accounts for missing trimmed bases
+        compare_read_sets_ignore_n(orig_reads, output_reads);
+    }
+
+
+
 
     #[test]
     fn test_cr12() {
@@ -968,5 +1046,53 @@ mod tests {
         }
         
         compare_read_sets(orig_reads, output_reads);
+    }
+
+    #[test]
+    fn test_cr12_v1() {
+        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tmp_path = tempdir.path().join("outs");
+
+        let args = Args {
+            arg_bam: "test/cr12-v1.bam".to_string(),
+            arg_output_path: tmp_path.to_str().unwrap().to_string(),
+            flag_gemcode: false,
+            flag_lr20: false,
+            flag_cr11: false,
+            flag_reads_per_fastq: 100000,
+        };
+
+        let out_path_sets = super::go(args, Some(2));
+
+        let true_fastq_read = open_interleaved_fastq_pair_iter(
+            "test/cellranger-3p-v1/read-RA_si-ACCAGTCC_lane-001-chunk-000.fastq.gz",
+            Some("test/cellranger-3p-v1/read-I1_si-ACCAGTCC_lane-001-chunk-000.fastq.gz"),
+        );
+
+        let mut orig_reads = ReadSet::new();
+        load_fastq_set(&mut orig_reads, true_fastq_read);
+
+       let mut output_reads = ReadSet::new();
+        for (r1, r2, i1, i2) in out_path_sets.clone() {
+            load_fastq_set(&mut output_reads, open_fastq_pair_iter(r1, r2, i1));
+        }
+        
+        compare_read_sets(orig_reads, output_reads);
+
+        // Separately test I1 & I2 as if they were the main reads.
+        let true_index_reads = open_fastq_pair_iter(
+            "test/cellranger-3p-v1/read-I1_si-ACCAGTCC_lane-001-chunk-000.fastq.gz",
+            "test/cellranger-3p-v1/read-I2_si-ACCAGTCC_lane-001-chunk-000.fastq.gz",
+            None);
+        let mut orig_index_reads = ReadSet::new();
+        load_fastq_set(&mut orig_index_reads, true_index_reads);
+
+
+        let mut output_index_reads = ReadSet::new();
+        for (_, _, i1, i2) in out_path_sets {
+            load_fastq_set(&mut output_index_reads, open_fastq_pair_iter(i1.unwrap(), i2.unwrap(), None));
+        }
+
+        compare_read_sets(orig_index_reads, output_index_reads);
     }
 }
