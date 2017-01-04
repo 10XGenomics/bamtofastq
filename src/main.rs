@@ -61,7 +61,7 @@ Usage:
 
 Options:
   --locus=<locus>      Optional. Only include read pairs mapping to locus. Use chrom:start-end format.
-  --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 200000000]
+  --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 50000000]
   --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
   --lr20               Convert a BAM produced by Longranger 2.0
   --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
@@ -257,7 +257,10 @@ impl FormatBamRecords {
             let vv = &v;
             let mut parts = vv.rsplitn(2, ':');
             let lane = parts.next().unwrap();
-            let rg = parts.next().unwrap().to_string();
+            let rg = match parts.next() {
+                Some(v) => v.to_string(),
+                None => return None,
+            };
 
             Some((v.clone(), rg, u32::from_str(lane).unwrap()))
         } else {
