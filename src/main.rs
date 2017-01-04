@@ -150,6 +150,7 @@ struct FormatBamRecords {
     r2_spec: Vec<SpecEntry>,
     i1_spec: Vec<SpecEntry>,
     i2_spec: Vec<SpecEntry>,
+    rename: Option<Vec<String>>,
 }
 
 pub fn complement(b: u8) -> u8 {
@@ -181,6 +182,7 @@ impl FormatBamRecords {
                     r2_spec: spec.remove("R2").unwrap(),
                     i1_spec: spec.remove("I1").unwrap_or_else(|| Vec::new()),
                     i2_spec: spec.remove("I2").unwrap_or_else(|| Vec::new()),
+                    rename: None,
             })
         }
     }
@@ -194,6 +196,7 @@ impl FormatBamRecords {
             r2_spec: vec![SpecEntry::Read],
             i1_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
             i2_spec: vec![SpecEntry::Tags("RX".to_string(), "QX".to_string())],
+            rename: None,
         }
     }
 
@@ -206,6 +209,7 @@ impl FormatBamRecords {
             r2_spec: vec![SpecEntry::Read],
             i1_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
             i2_spec: vec![],
+            rename: None,
         }
     } 
 
@@ -218,6 +222,7 @@ impl FormatBamRecords {
             r2_spec: vec![SpecEntry::Tags("UR".to_string(), "UQ".to_string())],
             i1_spec: vec![SpecEntry::Tags("CR".to_string(), "CQ".to_string())],
             i2_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
+            rename: Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()]),
         }
     }
 
@@ -579,14 +584,29 @@ impl FastqWriter {
     }
 
     fn get_paths(out_path: &Path, sample_name: &str, lane: u32, n_files: usize, formatter: &FormatBamRecords) -> (PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>) {
-        let r1 = out_path.join(format!("{}_S1_L{:03}_R1_{:03}.fastq.gz", sample_name, lane, n_files+1));
-        let r2 = out_path.join(format!("{}_S1_L{:03}_R2_{:03}.fastq.gz", sample_name, lane, n_files+1));
-        let i1 = out_path.join(format!("{}_S1_L{:03}_I1_{:03}.fastq.gz", sample_name, lane, n_files+1));
-        let i2 = out_path.join(format!("{}_S1_L{:03}_I2_{:03}.fastq.gz", sample_name, lane, n_files+1));
 
-        (r1, r2, 
-        if formatter.i1_spec.len() > 0 { Some(i1) } else { None }, 
-        if formatter.i2_spec.len() > 0 { Some(i2) } else { None })
+        if formatter.rename.is_none() {
+            let r1 = out_path.join(format!("{}_S1_L{:03}_R1_{:03}.fastq.gz", sample_name, lane, n_files+1));
+            let r2 = out_path.join(format!("{}_S1_L{:03}_R2_{:03}.fastq.gz", sample_name, lane, n_files+1));
+            let i1 = out_path.join(format!("{}_S1_L{:03}_I1_{:03}.fastq.gz", sample_name, lane, n_files+1));
+            let i2 = out_path.join(format!("{}_S1_L{:03}_I2_{:03}.fastq.gz", sample_name, lane, n_files+1));
+
+            (r1, r2, 
+            if formatter.i1_spec.len() > 0 { Some(i1) } else { None }, 
+            if formatter.i2_spec.len() > 0 { Some(i2) } else { None })
+        } else {
+            let new_read_names = formatter.rename.as_ref().unwrap();
+
+            let r1 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, n_files+1, new_read_names[0]));
+            let r2 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, n_files+1, new_read_names[1]));
+            let i1 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, n_files+1, new_read_names[2]));
+            let i2 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, n_files+1, new_read_names[3]));
+
+            (r1, r2, 
+            if formatter.i1_spec.len() > 0 { Some(i1) } else { None }, 
+            if formatter.i2_spec.len() > 0 { Some(i2) } else { None })
+
+        }
     }
 
     pub fn write_rec(w: &mut BGW, rec: &FqRecord)  {
