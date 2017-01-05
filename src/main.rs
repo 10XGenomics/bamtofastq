@@ -600,10 +600,10 @@ impl FastqWriter {
         } else {
             let new_read_names = formatter.rename.as_ref().unwrap();
 
-            let r1 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, n_files+1, new_read_names[0]));
-            let r2 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, n_files+1, new_read_names[1]));
-            let i1 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, n_files+1, new_read_names[2]));
-            let i2 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, n_files+1, new_read_names[3]));
+            let r1 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, new_read_names[0], n_files+1));
+            let r2 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, new_read_names[1], n_files+1));
+            let i1 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, new_read_names[2], n_files+1));
+            let i2 = out_path.join(format!("{}_S1_L{:03}_{}_{:03}.fastq.gz", sample_name, lane, new_read_names[3], n_files+1));
 
             (r1, r2, 
             if formatter.i1_spec.len() > 0 { Some(i1) } else { None }, 
