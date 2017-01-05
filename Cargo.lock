@@ -240,7 +240,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "shardio"
 version = "0.1.0"
-source = "git+ssh://git@github.com/10XDev/rust-shardio.git#d4449fb37bd8de9dcbe1ce7819034884d3a0d9fb"
+source = "git+ssh://git@github.com/10XDev/rust-shardio.git#d22fb84e0d440ef2669ed534d962996bb2d7241a"
 dependencies = [
  "bincode 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",

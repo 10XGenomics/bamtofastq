@@ -31,6 +31,7 @@ use rust_htslib::bam::{self, Read};
 use rust_htslib::bam::record::{Aux, Record};
 
 use bincode::rustc_serialize::{encode_into, decode};
+use shardio::ThreadProxyWriter;
 use shardio::shard::{Serializer, Shardable, ShardWriteManager, ShardReader};
 
 use regex::Regex;
@@ -479,7 +480,7 @@ impl FormatBamRecords {
     }
 }
 
-type BGW = BufWriter<GzEncoder<File>>;
+type BGW = ThreadProxyWriter<BufWriter<GzEncoder<File>>>;
 
 struct FastqManager {
     writers: HashMap<Rg, FastqWriter>,
@@ -656,10 +657,10 @@ impl FastqWriter {
         self.path_sets.push(paths);
     }
 
-    fn open_gzip_writer<P: AsRef<Path>>(path: P) -> BufWriter<GzEncoder<File>> {
+    fn open_gzip_writer<P: AsRef<Path>>(path: P) -> ThreadProxyWriter<BufWriter<GzEncoder<File>>> {
         let f = File::create(path).unwrap();
         let gz = GzEncoder::new(f, Compression::Fast);
-        BufWriter::new(gz)
+        ThreadProxyWriter::new(BufWriter::new(gz), 4096)
     }
 }
 
@@ -794,7 +795,7 @@ fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
         let mut rp_cache = RpCache::new();
 
         // For chimeric read piars that are showing up in different places, we will write these to disk for later use
-        let w: ShardWriteManager<SerFq, SerFqImpl> = ShardWriteManager::new(tmp_file.path(), 256, 2, SerFqImpl{});
+        let w: ShardWriteManager<SerFq> = ShardWriteManager::new(tmp_file.path(), 2048, 256, 2, SerFqImpl{});
         let mut sender = w.get_sender();
 
         // Count total R1s observed, so we can make sure we've preserved all read pairs
