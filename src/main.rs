@@ -699,7 +699,7 @@ impl RpCache {
         let mut new_cache = HashMap::new();
 
         for (key, rec) in self.cache.drain() {
-            if rec.pos() - current_pos > 5000 || rec.tid() != current_tid {
+            if (current_pos - rec.pos()).abs() > 5000 || rec.tid() != current_tid {
                 orphans.push(rec);
             } else {
                 new_cache.insert(key, rec);
@@ -726,7 +726,7 @@ fn main() {
 
 pub fn go(args: Args, cache_size: Option<usize>) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
 
-    let cache_size = cache_size.unwrap_or(100000);
+    let cache_size = cache_size.unwrap_or(200000);
  
     match args.flag_locus {
         Some(ref locus) => {
@@ -1016,6 +1016,7 @@ mod tests {
             flag_lr20: true,
             flag_cr11: false,
             flag_reads_per_fastq: 100000,
+            flag_locus: None,
         };
 
         let out_path_sets = super::go(args, Some(2));
@@ -1084,6 +1085,7 @@ mod tests {
             flag_lr20: false,
             flag_cr11: false,
             flag_reads_per_fastq: 100000,
+            flag_locus: None,
         };
 
         let out_path_sets = super::go(args, Some(2));
