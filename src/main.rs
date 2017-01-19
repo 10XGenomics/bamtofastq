@@ -57,6 +57,9 @@ const USAGE: &'static str = "
     Older 10x pipelines require one of the arguments listed below to indicate 
     which pipeline created the BAM.
 
+    NOTE: BAMs created by non-10x pipelines are unlikely to work correctly,
+    unless all the relevant tags have been recreated.
+
 
 Usage:
   bamtofastq [options] <bam> <output-path>
@@ -135,7 +138,7 @@ impl Shardable for SerFq {
 /// Entry in the conversion spec from a BAM record back to a read.
 /// Each read can be composed of data from a pair of tags (tag w/ sequence, tag w/ qual),
 /// or a fixed-length sequence of Ns (with a default QV), or the sequence in the read.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum SpecEntry {
     Tags(String, String),
     Ns(usize),
@@ -146,7 +149,7 @@ type Rg = (String, u32);
 
 /// Spec for converting from a BAM record back to reads. Empty vector indicates that this read doesn't exist
 /// in the output. The i1 and i2 reads should be buildable from tags in the R1 read.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct FormatBamRecords {
     rg_spec: Option<HashMap<String, Rg>>,
     r1_spec: Vec<SpecEntry>,
@@ -311,7 +314,6 @@ impl FormatBamRecords {
             }
         }
 
-        println!("spec: {:?}", spec);
         spec
     }
 
@@ -759,7 +761,6 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Vec<(PathBu
                 // even though the BAM headers support in theory tell us what to do.
                 // detect this case here and set the right rename field.
                 if f.r1_spec == vec![SpecEntry::Read] && 
-                   f.r2_spec == vec![SpecEntry::Tags("UR".to_string(), "UY".to_string())] &&
                    f.i1_spec == vec![SpecEntry::Tags("CR".to_string(), "CY".to_string())] &&
                    f.i2_spec == vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())] {
 
