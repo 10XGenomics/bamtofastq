@@ -759,8 +759,8 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Vec<(PathBu
                 // even though the BAM headers support in theory tell us what to do.
                 // detect this case here and set the right rename field.
                 if f.r1_spec == vec![SpecEntry::Read] && 
-                   f.r2_spec == vec![SpecEntry::Tags("UR".to_string(), "UQ".to_string())] &&
-                   f.i1_spec == vec![SpecEntry::Tags("CR".to_string(), "CQ".to_string())] &&
+                   f.r2_spec == vec![SpecEntry::Tags("UR".to_string(), "UY".to_string())] &&
+                   f.i1_spec == vec![SpecEntry::Tags("CR".to_string(), "CY".to_string())] &&
                    f.i2_spec == vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())] {
 
                     f.rename = Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()])
