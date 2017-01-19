@@ -39,6 +39,8 @@ use docopt::Docopt;
 
 mod locus;
 
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 const USAGE: &'static str = "
 10x Genomics BAM to FASTQ converter.
 
@@ -699,7 +701,8 @@ impl RpCache {
         let mut new_cache = HashMap::new();
 
         for (key, rec) in self.cache.drain() {
-            if (current_pos - rec.pos()).abs() > 5000 || rec.tid() != current_tid {
+            // Evict unmapped reads, reads on a previous chromosome, or reads that are >5kb behind the current position
+            if rec.tid() == -1 || (current_pos - rec.pos()).abs() > 5000 || rec.tid() != current_tid {
                 orphans.push(rec);
             } else {
                 new_cache.insert(key, rec);
@@ -717,6 +720,7 @@ impl RpCache {
 }
 
 fn main() {
+    println!("bamtofastq v{}", VERSION);
     let args: Args = Docopt::new(USAGE)
                          .and_then(|d| d.decode())
                          .unwrap_or_else(|e| e.exit());
