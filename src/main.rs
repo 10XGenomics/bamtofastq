@@ -199,7 +199,7 @@ impl FormatBamRecords {
             r2_spec: vec![SpecEntry::Read],
             i1_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
             i2_spec: vec![SpecEntry::Tags("RX".to_string(), "QX".to_string())],
-            rename: None,
+            rename: Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()]),
         }
     }
 
@@ -752,7 +752,21 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Vec<(PathBu
     let formatter = {
         let header_fmt = FormatBamRecords::from_headers(&bam);
         match header_fmt {
-            Some(f) => f,
+            Some(mut f) => {
+                // HACK -- special case
+                // we need a special case for SC 3' v1 data
+                // because of the bc-in-index setup, it needs the rename field set,
+                // even though the BAM headers support in theory tell us what to do.
+                // detect this case here and set the right rename field.
+                if f.r1_spec == vec![SpecEntry::Read] && 
+                   f.r2_spec == vec![SpecEntry::Tags("UR".to_string(), "UQ".to_string())] &&
+                   f.i1_spec == vec![SpecEntry::Tags("CR".to_string(), "CQ".to_string())] &&
+                   f.i2_spec == vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())] {
+
+                    f.rename = Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()])
+                }
+                f
+            },
             None => {
                 if args.flag_gemcode {
                     FormatBamRecords::gemcode(&bam)
