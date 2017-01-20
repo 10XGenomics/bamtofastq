@@ -8,7 +8,7 @@ docopt = "*"
 rust-htslib = "*"
 flate2 = "*"
 rustc-serialize = "*"
-shardio = { git = "ssh://git@github.com/10XDev/rust-shardio.git" }
+shardio = { path = "external/rust-shardio" }
 bincode = "*"
 itertools = "*"
 regex = "*"
@@ -16,4 +16,4 @@ tempfile = "*"
 tempdir = "*"
 
 [dev-dependencies]
-fastq_10x = { path = "../rust-fastq-10x" }
+fastq_10x = { path = "external/rust-fastq-10x" }
