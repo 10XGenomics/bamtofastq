@@ -104,6 +104,7 @@ enum ReadNum {
 #[derive(Debug, RustcEncodable, RustcDecodable, PartialOrd, Ord, Eq, PartialEq)]
 struct SerFq {
     read_group: Option<Rg>,
+    header_key: Vec<u8>,
     rec: FqRecord,
     read_num: ReadNum,
     i1: Option<FqRecord>,
@@ -130,7 +131,7 @@ impl Serializer<SerFq> for SerFqImpl {
 impl Shardable for SerFq {
     fn shard(&self) -> usize {
         let mut s = SipHasher::new();
-        self.rec.head.hash(&mut s);
+        self.header_key.hash(&mut s);
         s.finish() as usize
     }
 }
@@ -157,6 +158,7 @@ struct FormatBamRecords {
     i1_spec: Vec<SpecEntry>,
     i2_spec: Vec<SpecEntry>,
     rename: Option<Vec<String>>,
+    order: [u32; 4],
 }
 
 pub fn complement(b: u8) -> u8 {
@@ -189,6 +191,7 @@ impl FormatBamRecords {
                     i1_spec: spec.remove("I1").unwrap_or_else(|| Vec::new()),
                     i2_spec: spec.remove("I2").unwrap_or_else(|| Vec::new()),
                     rename: None,
+                    order: [1,3,2,4],
             })
         }
     }
@@ -203,6 +206,7 @@ impl FormatBamRecords {
             i1_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
             i2_spec: vec![SpecEntry::Tags("RX".to_string(), "QX".to_string())],
             rename: Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()]),
+            order: [1,4,2,3]
         }
     }
 
@@ -216,6 +220,7 @@ impl FormatBamRecords {
             i1_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
             i2_spec: vec![],
             rename: None,
+            order: [1,3,2,0]
         }
     } 
 
@@ -229,6 +234,7 @@ impl FormatBamRecords {
             i1_spec: vec![SpecEntry::Tags("CR".to_string(), "CQ".to_string())],
             i2_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
             rename: Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()]),
+            order: [1,4,3,2],
         }
     }
 
@@ -338,21 +344,23 @@ impl FormatBamRecords {
         match (rec.is_first_in_template(), rec.is_last_in_template()) {
             (true, false) => {
                 SerFq {
+                    header_key: rec.qname().to_vec(),
                     read_group: self.find_rg(rec),
                     read_num: ReadNum::R1,
-                    rec: self.bam_rec_to_fq(rec, &self.r1_spec).unwrap(),
-                    i1: if self.i1_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i1_spec).unwrap()) }  else { None },
-                    i2: if self.i2_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i2_spec).unwrap()) }  else { None },
+                    rec: self.bam_rec_to_fq(rec, &self.r1_spec, self.order[0]).unwrap(),
+                    i1: if self.i1_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2]).unwrap()) }  else { None },
+                    i2: if self.i2_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3]).unwrap()) }  else { None },
                     
                 }
             },
             (false, true) => {
                 SerFq {
+                    header_key: rec.qname().to_vec(),
                     read_group: self.find_rg(rec),
                     read_num: ReadNum::R2,
-                    rec: self.bam_rec_to_fq(rec, &self.r2_spec).unwrap(),
-                    i1: if self.i1_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i1_spec).unwrap()) }  else { None },
-                    i2: if self.i2_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i2_spec).unwrap()) }  else { None },
+                    rec: self.bam_rec_to_fq(rec, &self.r2_spec, self.order[1]).unwrap(),
+                    i1: if self.i1_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2]).unwrap()) }  else { None },
+                    i2: if self.i2_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3]).unwrap()) }  else { None },
                 }
             },
             _ => panic!("Not a valid read pair"),
@@ -360,10 +368,12 @@ impl FormatBamRecords {
     }
 
     /// Convert a BAM record to Fq record ready to be written
-    pub fn bam_rec_to_fq(&self, rec: &Record, spec: &Vec<SpecEntry>) -> Result<FqRecord> {
+    pub fn bam_rec_to_fq(&self, rec: &Record, spec: &Vec<SpecEntry>, read_number: u32) -> Result<FqRecord> {
 
         let mut head = Vec::new();
         head.extend_from_slice(rec.qname());
+        let head_suffix = format!(" {}:N:0:0", read_number);
+        head.extend(head_suffix.as_bytes());
 
         // Reconstitute read and QVs
         let mut r = Vec::new();
@@ -437,17 +447,17 @@ impl FormatBamRecords {
     }
 
     pub fn format_read_pair(&self, r1_rec: &Record, r2_rec: &Record) -> Result<(Option<Rg>, FqRecord, FqRecord, Option<FqRecord>, Option<FqRecord>)> {
-        let r1 = self.bam_rec_to_fq(r1_rec, &self.r1_spec).unwrap();
-        let r2 = self.bam_rec_to_fq(r2_rec, &self.r2_spec).unwrap();
+        let r1 = self.bam_rec_to_fq(r1_rec, &self.r1_spec, self.order[0]).unwrap();
+        let r2 = self.bam_rec_to_fq(r2_rec, &self.r2_spec, self.order[1]).unwrap();
 
         let i1 = if self.i1_spec.len() > 0 {
-             Some(self.bam_rec_to_fq(r1_rec, &self.i1_spec).unwrap())
+             Some(self.bam_rec_to_fq(r1_rec, &self.i1_spec, self.order[2]).unwrap())
         } else {
             None
         };
 
         let i2 = if self.i2_spec.len() > 0 {
-             Some(self.bam_rec_to_fq(r1_rec, &self.i2_spec).unwrap())
+             Some(self.bam_rec_to_fq(r1_rec, &self.i2_spec, self.order[3]).unwrap())
         } else {
             None
         };
@@ -458,17 +468,17 @@ impl FormatBamRecords {
 
 
     pub fn format_read(&self, rec: &Record) -> Result<(Option<Rg>, FqRecord, FqRecord, Option<FqRecord>, Option<FqRecord>)> {
-        let r1 = self.bam_rec_to_fq(rec, &self.r1_spec).unwrap();
-        let r2 = self.bam_rec_to_fq(rec, &self.r2_spec).unwrap();
+        let r1 = self.bam_rec_to_fq(rec, &self.r1_spec, self.order[0]).unwrap();
+        let r2 = self.bam_rec_to_fq(rec, &self.r2_spec, self.order[1]).unwrap();
 
         let i1 = if self.i1_spec.len() > 0 {
-             Some(self.bam_rec_to_fq(rec, &self.i1_spec).unwrap())
+             Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2]).unwrap())
         } else {
             None
         };
 
         let i2 = if self.i2_spec.len() > 0 {
-             Some(self.bam_rec_to_fq(rec, &self.i2_spec).unwrap())
+             Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3]).unwrap())
         } else {
             None
         };
@@ -504,7 +514,7 @@ impl FastqManager {
                     let path = sample_def_paths.entry(samp).or_insert_with(|| {
                         let suffix = _samp.replace(":", "_");
                         let samp_path = out_path.join(suffix);
-                        create_dir(&samp_path);
+                        create_dir(&samp_path).expect("couldn't create output directory");
                         samp_path
                     });
                     
@@ -868,7 +878,7 @@ fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
         let mut data = reader.read_shard(s);
         data.sort();
 
-        for (_, items) in &data.iter().group_by(|x| &x.rec.head) {
+        for (_, items) in &data.iter().group_by(|x| &x.header_key) {
             // write out items
             let mut item_vec: Vec<_> = items.collect();
             if item_vec.len() != 2 {
