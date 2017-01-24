@@ -205,7 +205,7 @@ impl FormatBamRecords {
             r2_spec: vec![SpecEntry::Read],
             i1_spec: vec![SpecEntry::Tags("BC".to_string(), "QT".to_string())],
             i2_spec: vec![SpecEntry::Tags("RX".to_string(), "QX".to_string())],
-            rename: Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()]),
+            rename: Some(vec!["R1".to_string(), "R3".to_string(), "I1".to_string(), "R2".to_string()]),
             order: [1,4,2,3]
         }
     }
