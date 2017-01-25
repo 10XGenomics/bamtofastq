@@ -1,3 +1,12 @@
+// `error_chain!` can recurse deeply
+#![recursion_limit = "1024"]
+
+// Import the macro. Don't forget to add `error-chain` in your
+// `Cargo.toml`!
+#[macro_use]
+extern crate error_chain;
+
+
 extern crate docopt;
 extern crate rust_htslib;
 extern crate flate2;
@@ -12,7 +21,7 @@ extern crate tempdir;
 #[cfg(test)]
 extern crate fastq_10x;
 
-use std::io::{Write, BufWriter, Result};
+use std::io::{Write, BufWriter};
 use std::fs::File;
 use std::fs::create_dir;
 use std::path::{PathBuf, Path};
@@ -31,13 +40,32 @@ use rust_htslib::bam::{self, Read};
 use rust_htslib::bam::record::{Aux, Record};
 
 use bincode::rustc_serialize::{encode_into, decode};
-use shardio::ThreadProxyWriter;
 use shardio::shard::{Serializer, Shardable, ShardWriteManager, ShardReader};
+use shardio::ThreadProxyWriter;
 
 use regex::Regex;
 use docopt::Docopt;
 
 mod locus;
+mod rpcache;
+use rpcache::RpCache;
+
+// We'll put our errors in an `errors` module, and other modules in
+// this crate will `use errors::*;` to get access to everything
+// `error_chain!` creates.
+mod errors {
+    // Create the Error, ErrorKind, ResultExt, and Result types
+    error_chain! { 
+        foreign_links {
+            Io(::std::io::Error) #[doc = "Link to a `std::error::Error` type."];
+            Bam(::rust_htslib::bam::SeekError);
+        }
+    }
+}
+
+use errors::*;
+
+
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
@@ -279,7 +307,23 @@ impl FormatBamRecords {
                 None => return None,
             };
 
-            Some((v.clone(), rg, u32::from_str(lane).unwrap()))
+            match u32::from_str(lane) {
+                Ok(n) => Some((v.clone(), rg, n)),
+                Err(_) => {
+                    // Handle case in ALIGNER pipeline prior to 2.1.3 -- samtools merge would append a unique identifier to each RG ID tags
+                    // Detect this condition and remove from lane
+                    let re = Regex::new(r"^([0-9]+)-[0-9A-F]+$").unwrap();
+                    let cap = re.captures(lane);
+
+
+                    if cap.is_none() {
+                        None
+                    } else {
+                        let lane_u32 = u32::from_str(cap.unwrap().at(1).unwrap()).unwrap();
+                        Some((v.clone(), rg, lane_u32))
+                    }
+                }
+            }
         } else {
             None
         }
@@ -392,7 +436,7 @@ impl FormatBamRecords {
                     if rx.is_none() && last_item {
                         continue;
                     } else if rx.is_none() {
-                        panic!(format!("read: {:?} missing: {:?}", rec.qname(), read_tag));
+                        panic!(format!("Invalid BAM record: read: {:?} is missing tag: {:?}", std::str::from_utf8(rec.qname()).unwrap(), read_tag));
                     } else {
                         let rx = rx.unwrap().string();
                         r.extend_from_slice(rx);
@@ -678,88 +722,64 @@ impl FastqWriter {
     }
 }
 
-/// Read-pair cache. Let's us stream through the BAM and find nearby mates so we can write them out immediately
-struct RpCache {
-    cache: HashMap<Vec<u8>, Record>
-}
-
-impl RpCache {
-
-    pub fn new() -> RpCache {
-        RpCache { cache: HashMap::new() }
-    }
-
-    pub fn cache_rec(&mut self, rec: Record) -> Option<(Record, Record)> {
-        // If cache already has entry, we have a pair! Return both
-        match self.cache.remove(rec.qname()) {
-            Some(old_rec) => {
-                if rec.is_first_in_template() && old_rec.is_last_in_template() {
-                    Some((rec, old_rec))
-                } else if old_rec.is_first_in_template() && rec.is_last_in_template() {
-                    Some((old_rec, rec))
-                } else {
-                    panic!("invalid pair")
-                }
-            },
-            None => {
-                self.cache.insert(Vec::from(rec.qname()), rec);
-                None
-            }
-        }
-    }
-
-    pub fn clear_orphans(&mut self, current_tid: i32, current_pos: i32) -> Vec<Record> {
-        let mut orphans = Vec::new();
-        let mut new_cache = HashMap::new();
-
-        for (key, rec) in self.cache.drain() {
-            // Evict unmapped reads, reads on a previous chromosome, or reads that are >5kb behind the current position
-            if rec.tid() == -1 || (current_pos - rec.pos()).abs() > 5000 || rec.tid() != current_tid {
-                orphans.push(rec);
-            } else {
-                new_cache.insert(key, rec);
-            }
-        }
-
-        self.cache = new_cache;
-        orphans
-    }
-
-    pub fn len(&self) -> usize 
-    {
-        self.cache.len()
-    }
-}
 
 fn main() {
+    if let Err(ref e) = run() {
+        println!("error: {}", e);
+
+        for e in e.iter().skip(1) {
+            println!("caused by: {}", e);
+        }
+
+        // The backtrace is not always generated. Try to run this example
+        // with `RUST_BACKTRACE=1`.
+        /*
+        if let Some(backtrace) = e.backtrace() {
+            println!("------------");
+            println!("If you believe this is a bug in bamtofastq, please report a bug to software@10xgenomics.com.");
+            println!("{:?}", backtrace);
+        }
+        */
+
+        ::std::process::exit(1);
+    }
+}
+
+// Most functions will return the `Result` type, imported from the
+// `errors` module. It is a typedef of the standard `Result` type
+// for which the error type is always our own `Error`.
+fn run() -> Result<()> {
+
     println!("bamtofastq v{}", VERSION);
     let args: Args = Docopt::new(USAGE)
                          .and_then(|d| d.decode())
                          .unwrap_or_else(|e| e.exit());
-    go(args, None);
-}                
+
+    let _ = try!(go(args, None));
+    Ok(())
+}          
 
 
-pub fn go(args: Args, cache_size: Option<usize>) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
+pub fn go(args: Args, cache_size: Option<usize>) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
 
     let cache_size = cache_size.unwrap_or(200000);
  
     match args.flag_locus {
         Some(ref locus) => {
-            let loc = locus::Locus::from_str(locus).unwrap();
-            let mut bam = bam::IndexedReader::from_path(&args.arg_bam).ok().expect("Error opening BAM file");
-            let tid = bam.header().tid(loc.chrom.as_bytes()).expect("Unrecognized chromosome in locus");
-            bam.seek(tid, loc.start, loc.end);
+            let loc = try!(locus::Locus::from_str(locus).chain_err(|| "Invalid locus argument. Please use format: 'chr1:123-456'"));
+            let mut bam = try!(bam::IndexedReader::from_path(&args.arg_bam).chain_err(|| "Error opening BAM file. The BAM file must be indexed when using --locus"));
+            let tid = try!(bam.header().tid(loc.chrom.as_bytes()).ok_or("bogus!"));
+            try!(bam.seek(tid, loc.start, loc.end));
             inner(args.clone(), cache_size, bam)
         },
         None => {
-            let bam = bam::Reader::from_path(&args.arg_bam).ok().expect("Error opening BAM file");
+            let bam = try!(bam::Reader::from_path(&args.arg_bam).chain_err(|| "Error opening BAM file"));
             inner(args, cache_size, bam)
         }
     }
 }
 
-pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
+pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
 
     let formatter = {
         let header_fmt = FormatBamRecords::from_headers(&bam);
@@ -776,6 +796,11 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Vec<(PathBu
 
                     f.rename = Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()])
                 }
+
+                if args.flag_gemcode || args.flag_lr20 || args.flag_cr11 {
+                    return Err("Supplied BAM file contains bamtofastq headers. Do not use a pipeline specific flag".into())
+                }
+
                 f
             },
             None => {
@@ -790,17 +815,16 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Vec<(PathBu
                     println!("--gemcode   BAM files created with GemCode data using Longranger 1.0 - 1.3");
                     println!("--lr20      BAM files created with Longranger 2.0 using Chromium Genome data");
                     println!("--cr11      BAM files created with Cell Ranger 1.0-1.1 using Single Cell 3' v1 data");
-                    return vec![];
+                    return Ok(vec![]);
                 }
             }
         }
     };
 
     let out_path = Path::new(&args.arg_output_path);
-
     match create_dir(&out_path) {
-        Err(msg) => { println!("Couldn't create output directory: {:?}.  Error: {}", out_path, msg); return vec![]},
-        Ok(_) => (),
+        Err(e) => return Err(format!("error creating output directory: {:?}. Does it already exist?", &out_path).into()),
+        _ => ()
     }
     
     // prep output files
@@ -815,9 +839,9 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Vec<(PathBu
 }
 
 
-fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
+fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
-    let tmp_file = NamedTempFile::new().unwrap();
+    let tmp_file = try!(NamedTempFile::new());
 
     let total_read_pairs = {
         // Cache for efficiently finding local read pairs
@@ -895,10 +919,10 @@ fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
 
     // make sure we have the right number of output reads
     println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs ({} cached)", total_read_pairs, fq.total_written(), ncached);
-    fq.paths()
+    Ok(fq.paths())
 }
 
-fn proc_single_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
+fn proc_single_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
 
     let total_reads = {
         // Count total R1s observed, so we can make sure we've preserved all read pairs
@@ -922,7 +946,7 @@ fn proc_single_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
 
     // make sure we have the right number of output reads
     println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs", total_reads, fq.total_written());
-    fq.paths()
+    Ok(fq.paths())
 }
 
 #[cfg(test)]
@@ -1016,7 +1040,7 @@ mod tests {
             flag_locus: None,
         };
 
-        let out_path_sets = super::go(args, Some(2));
+        let out_path_sets = super::go(args, Some(2)).unwrap();
 
         let true_fastq_read = open_interleaved_fastq_pair_iter(
             "test/crg-tiny-fastq-2.0.0/read-RA_si-GTTGCAGC_lane-001-chunk-001.fastq.gz", 
@@ -1048,7 +1072,7 @@ mod tests {
             flag_locus: None,
         };
 
-        let out_path_sets = super::go(args, Some(2));
+        let out_path_sets = super::go(args, Some(2)).unwrap();
 
         let true_fastq_read = open_interleaved_fastq_pair_iter(
             "test/crg-tiny-fastq-2.0.0/read-RA_si-GTTGCAGC_lane-001-chunk-001.fastq.gz", 
@@ -1085,7 +1109,7 @@ mod tests {
             flag_locus: None,
         };
 
-        let out_path_sets = super::go(args, Some(2));
+        let out_path_sets = super::go(args, Some(2)).unwrap();
 
         let true_fastq_read = open_interleaved_fastq_pair_iter(
             "test/cellranger-tiny-fastq-1.2.0/read-RA_si-TTTCATGA_lane-008-chunk-001.fastq.gz",
@@ -1117,7 +1141,7 @@ mod tests {
             flag_locus: None,
         };
 
-        let out_path_sets = super::go(args, Some(2));
+        let out_path_sets = super::go(args, Some(2)).unwrap();
 
         let true_fastq_read = open_interleaved_fastq_pair_iter(
             "test/cellranger-3p-v1/read-RA_si-ACCAGTCC_lane-001-chunk-000.fastq.gz",

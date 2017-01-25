@@ -62,6 +62,13 @@ If the BAM file contains '@RG' headers and tags to indicate the source of each r
 in the BAM file.
 
 
+### Known Issues
+
+* Multi-Gem Group BAM files created by Cell Ranger 1.2 and earlier do not carry Read Group tags, so reads from different GEM groups cannot be distinguished.
+* 'Unaligned' BAM files created by the BASIC pipeline in Long Ranger versions prior to 2.1.3, due to missing R1/R2 flags.
+
+
+
 ## 10x internal links
 
 Some internal links:
