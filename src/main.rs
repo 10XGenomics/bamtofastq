@@ -883,14 +883,14 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Result<Vec<
     let fq = FastqManager::new(out_path, formatter.clone(), "bamtofastq".to_string(), args.flag_reads_per_fastq);
  
     if formatter.is_double_ended() {
-        proc_double_ended(bam, formatter, fq, cache_size)
+        proc_double_ended(bam, formatter, fq, cache_size, args.flag_locus.is_some())
     } else {
         proc_single_ended(bam, formatter, fq)
     }
 }
 
 
-fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
+fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize, restricted_locus: bool) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
     let tmp_file = try!(NamedTempFile::new());
 
@@ -956,8 +956,15 @@ fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
         for (_, items) in &data.iter().group_by(|x| &x.header_key) {
             // write out items
             let mut item_vec: Vec<_> = items.collect();
-            if item_vec.len() != 2 {
+
+            // We're missing a read in the pair, and we would expect it.
+            if item_vec.len() != 2 && !restricted_locus {
                 panic!("didn't get both reads!: {:?}", item_vec);
+            }
+
+            // We're missing a read in the pair, and we would expect it.
+            if item_vec.len() != 2 && restricted_locus {
+                continue
             }
 
             item_vec.sort_by_key(|x| x.read_num);
@@ -969,7 +976,7 @@ fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
     }
 
     // make sure we have the right number of output reads
-    println!("Writing finished.  Observed {} read pairs. Wrote {} read pairs ({} cached)", total_read_pairs, fq.total_written(), ncached);
+    println!("Writing finished.  Observed {} unique read ids. Wrote {} read pairs ({} cached)", total_read_pairs, fq.total_written(), ncached);
     Ok(fq.paths())
 }
 
