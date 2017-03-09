@@ -1,8 +1,6 @@
 // `error_chain!` can recurse deeply
 #![recursion_limit = "1024"]
 
-// Import the macro. Don't forget to add `error-chain` in your
-// `Cargo.toml`!
 #[macro_use]
 extern crate error_chain;
 
@@ -88,6 +86,8 @@ const USAGE: &'static str = "
     NOTE: BAMs created by non-10x pipelines are unlikely to work correctly,
     unless all the relevant tags have been recreated.
 
+    NOTE: BAM produced by the BASIC and ALIGNER pipeline from Long Ranger 2.1.2 and earlier
+    are not compatible with bamtofastq
 
 Usage:
   bamtofastq [options] <bam> <output-path>
@@ -101,6 +101,25 @@ Options:
   --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
   -h --help            Show this screen.
 ";
+
+
+/*
+== Dev Notes ==
+This code has bunch of special cases to workaround deficiences of the BAM files produced by older pipelines,
+before we started enforcing the notion that BAM files should be easily convertible back to the original 
+FASTQ data that was input.  Once these older pipelines & chemistries are out of service, the code could
+be made considerably simpler.
+
+1) Workaround for CR < 1.3:  there are no RG headers or RG tags, so we can't accurately get back to 
+per-Gem Group FASTQs, which is important because multi-gem-group experiments are common.  If we don't
+have RG headers, we will set up files for 20 gem groups, and use the gem-group suffix on the CB tag to
+determine the Gem group.  Reads without a CB tag will get dropped.
+
+
+*/
+
+
+
 
 #[derive(Debug, RustcDecodable, Clone)]
 pub struct Args {
@@ -180,7 +199,7 @@ type Rg = (String, u32);
 /// in the output. The i1 and i2 reads should be buildable from tags in the R1 read.
 #[derive(Clone, Debug)]
 struct FormatBamRecords {
-    rg_spec: Option<HashMap<String, Rg>>,
+    rg_spec: HashMap<String, Rg>,
     r1_spec: Vec<SpecEntry>,
     r2_spec: Vec<SpecEntry>,
     i1_spec: Vec<SpecEntry>,
@@ -207,13 +226,14 @@ impl FormatBamRecords {
     pub fn from_headers<R: bam::Read>(reader: &R) -> Option<FormatBamRecords> {
 
         let mut spec = Self::parse_spec(reader);
+        let rgs = Self::parse_rgs(reader);
 
         if spec.len() == 0 {
             None
         } else {
             Some(
                 FormatBamRecords {
-                    rg_spec: Self::parse_rgs(reader),
+                    rg_spec: rgs,
                     r1_spec: spec.remove("R1").unwrap(),
                     r2_spec: spec.remove("R2").unwrap(),
                     i1_spec: spec.remove("I1").unwrap_or_else(|| Vec::new()),
@@ -266,7 +286,7 @@ impl FormatBamRecords {
         }
     }
 
-    fn parse_rgs<R: bam::Read>(reader: &R) -> Option<HashMap<String, Rg>> {
+    fn parse_rgs<R: bam::Read>(reader: &R) -> HashMap<String, Rg> {
         let text = String::from_utf8(Vec::from(reader.header().as_bytes())).unwrap();
         let mut rg_items = HashMap::new();
 
@@ -280,7 +300,18 @@ impl FormatBamRecords {
             }
         }
 
-        if rg_items.len() > 0 { Some(rg_items) } else { None }
+        if rg_items.len() == 0 {
+            println!("WARNING: no @RG (read group) headers found in BAM file. Splitting data by the GEM group marked in the corrected barcode tag.");
+            println!("Reads without a corrected barcode will not appear in output FASTQs");
+            // No RG items in header -- invent a set fixed set of RGs
+            // each observed Gem group in the BAM file will get mapped to these.
+            for i in 1 .. 100 {
+                let name = format!("gemgroup{:03}", i);
+                rg_items.insert(name.clone(), (name, 0));
+            }
+        }
+
+        rg_items
     }
 
     fn parse_rg_line(line: &str) -> Option<(String, String, u32)> {
@@ -368,18 +399,39 @@ impl FormatBamRecords {
     }
 
     pub fn find_rg(&self, rec: &Record) -> Option<Rg> {
-        match self.rg_spec {
-            Some(ref spec) => {
-                let rg = rec.aux(b"RG");
-                match rg {
+
+        let rg = rec.aux(b"RG");
+        match rg {
+            Some(Aux::String(s)) => { 
+                let key = String::from_utf8(Vec::from(s)).unwrap();
+                self.rg_spec.get(&key).map(|x| x.clone())
+            },
+            Some(..) => panic!("invalid type of RG header. record: {}", std::str::from_utf8(rec.qname()).unwrap()),
+            None => {
+                // Workaround for early CR 1.1 and 1.2 data
+                // Attempt to extract the gem group out of the corrected barcode tag (CB)
+                match rec.aux(b"CB") {
                     Some(Aux::String(s)) => { 
-                        let key = String::from_utf8(Vec::from(s)).unwrap();
-                        spec.get(&key).map(|x| x.clone())
+                        let corrected_bc = String::from_utf8(Vec::from(s)).unwrap();
+                        let mut parts = (&corrected_bc).split("-");
+                        let _ = parts.next();
+                        match parts.next() {
+                            Some(v) => {
+                                match u32::from_str(v) {
+                                    Ok(v) => {
+                                        //println!("got gg: {}", v);
+                                        let name = format!("gemgroup{:03}", v);
+                                        self.rg_spec.get(&name).map(|x| x.clone())
+                                    },
+                                    _ => None
+                                }
+                            },
+                            _ => None,
+                        }
                     },
                     _ => None,
                 }
-            },
-            None => None,
+            }
         }
     }
 
@@ -547,38 +599,33 @@ struct FastqManager {
 impl FastqManager {
     pub fn new(out_path: &Path, formatter: FormatBamRecords, sample_name: String, reads_per_fastq: usize) -> FastqManager {
 
-        match formatter.rg_spec {
-            Some(ref spec) => {
-                // Take the read groups and generate read group paths
-                let mut sample_def_paths = HashMap::new();
-                let mut writers = HashMap::new();
+        // Take the read groups and generate read group paths
+        let mut sample_def_paths = HashMap::new();
+        let mut writers = HashMap::new();
 
-                for (_, &(ref _samp, lane)) in spec.iter() {
-                    let samp = _samp.clone();
-                    let path = sample_def_paths.entry(samp).or_insert_with(|| {
-                        let suffix = _samp.replace(":", "_");
-                        let samp_path = out_path.join(suffix);
-                        create_dir(&samp_path).expect("couldn't create output directory");
-                        samp_path
-                    });
-                    
-                    let writer = FastqWriter::new(path, formatter.clone(), "bamtofastq".to_string(), lane, reads_per_fastq);
-                    writers.insert((_samp.clone(), lane), writer);
-                }
-
-                FastqManager { writers: writers }
-            },
-            None => {
-                let mut w = HashMap::new();
-                w.insert(("def".to_string(), 0), FastqWriter::new(out_path, formatter.clone(), "bamtofastq".to_string(), 1, reads_per_fastq));
-                FastqManager { writers: w }
-            }
+        for (_, &(ref _samp, lane)) in formatter.rg_spec.iter() {
+            let samp = _samp.clone();
+            let path = sample_def_paths.entry(samp).or_insert_with(|| {
+                let suffix = _samp.replace(":", "_");
+                let samp_path = out_path.join(suffix);
+                create_dir(&samp_path).expect("couldn't create output directory");
+                samp_path
+            });
+            
+            let writer = FastqWriter::new(path, formatter.clone(), "bamtofastq".to_string(), lane, reads_per_fastq);
+            writers.insert((_samp.clone(), lane), writer);
         }
+
+        FastqManager { writers: writers }
     }
 
     pub fn write(&mut self, rg: &Option<Rg>, r1: &FqRecord, r2: &FqRecord, i1: &Option<FqRecord>, i2: &Option<FqRecord>) {
-        let w = self.writers.get_mut(rg.as_ref().unwrap_or(&("def".to_string(), 0))).unwrap();
-        w.write(r1, r2, i1, i2);
+        match rg {
+            &Some(ref rg) => {
+                 self.writers.get_mut(rg).map(|w| w.write(r1,r2,i1,i2));
+            },
+            _ => ()
+        }
     }
 
     pub fn total_written(&self) -> usize {
@@ -604,8 +651,8 @@ struct FastqWriter {
     sample_name: String,
     lane: u32,
 
-    r1: BGW,
-    r2: BGW,
+    r1: Option<BGW>,
+    r2: Option<BGW>,
     i1: Option<BGW>,
     i2: Option<BGW>,
 
@@ -620,28 +667,20 @@ struct FastqWriter {
 impl FastqWriter {
 
     pub fn new(out_path: &Path, formatter: FormatBamRecords, sample_name: String, lane: u32, reads_per_fastq: usize) -> FastqWriter {
-
-        // open output files
-        let paths = Self::get_paths(&out_path, &sample_name, lane, 0, &formatter);
-        //let r1 = 
-        let r2 = Self::open_gzip_writer(&paths.1);
-        let i1 = paths.2.as_ref().map(|p| Self::open_gzip_writer(p));
-        let i2 = paths.3.as_ref().map(|p| Self::open_gzip_writer(p));
-
         FastqWriter {
             formatter: formatter,
             out_path: out_path.to_path_buf(),
             sample_name: sample_name,
             lane: lane,
-            r1: Self::open_gzip_writer(&paths.0),
-            r2: r2,
-            i1: i1,
-            i2: i2,
-            n_chunks: 1,
+            r1: None,
+            r2: None,
+            i1: None,
+            i2: None,
+            n_chunks: 0,
             total_written: 0,
             chunk_written: 0,
             reads_per_fastq: reads_per_fastq,
-            path_sets: vec![paths],
+            path_sets: vec![],
         }
     }
 
@@ -689,10 +728,22 @@ impl FastqWriter {
         }
     }
 
+    pub fn try_write_rec2(w: &mut Option<BGW>, rec: &FqRecord) {
+        match w {
+            &mut Some(ref mut w) => FastqWriter::write_rec(w, rec),
+            &mut None => ()
+        }
+    }
+
     /// Write a set of fastq records
     pub fn write(&mut self, r1: &FqRecord, r2: &FqRecord, i1: &Option<FqRecord>, i2: &Option<FqRecord>) {
-        FastqWriter::write_rec(&mut self.r1, r1);
-        FastqWriter::write_rec(&mut self.r2, r2);
+
+        if self.total_written == 0 {
+            self.cycle_writers()
+        }
+
+        FastqWriter::try_write_rec2(&mut self.r1, r1);
+        FastqWriter::try_write_rec2(&mut self.r2, r2);
         FastqWriter::try_write_rec(&mut self.i1, i1);
         FastqWriter::try_write_rec(&mut self.i2, i2);
         self.total_written += 1;
@@ -706,8 +757,8 @@ impl FastqWriter {
     /// Open up a fresh output chunk
     fn cycle_writers(&mut self) {
         let paths = Self::get_paths(&self.out_path, &self.sample_name, self.lane, self.n_chunks, &self.formatter);
-        self.r1 = Self::open_gzip_writer(&paths.0);
-        self.r2 = Self::open_gzip_writer(&paths.1);
+        self.r1 = Some(Self::open_gzip_writer(&paths.0));
+        self.r2 = Some(Self::open_gzip_writer(&paths.1));
         self.i1 = paths.2.as_ref().map(|p| Self::open_gzip_writer(p));
         self.i2 = paths.3.as_ref().map(|p| Self::open_gzip_writer(p));
         self.n_chunks += 1;
@@ -768,7 +819,7 @@ pub fn go(args: Args, cache_size: Option<usize>) -> Result<Vec<(PathBuf, PathBuf
         Some(ref locus) => {
             let loc = try!(locus::Locus::from_str(locus).chain_err(|| "Invalid locus argument. Please use format: 'chr1:123-456'"));
             let mut bam = try!(bam::IndexedReader::from_path(&args.arg_bam).chain_err(|| "Error opening BAM file. The BAM file must be indexed when using --locus"));
-            let tid = try!(bam.header().tid(loc.chrom.as_bytes()).ok_or("bogus!"));
+            let tid = try!(bam.header().tid(loc.chrom.as_bytes()).ok_or(format!("Requested chromosome not present: {}", loc.chrom)));
             try!(bam.seek(tid, loc.start, loc.end));
             inner(args.clone(), cache_size, bam)
         },
@@ -949,6 +1000,7 @@ fn proc_single_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
     Ok(fq.paths())
 }
 
+
 #[cfg(test)]
 mod tests {
     use tempdir;
@@ -965,7 +1017,8 @@ mod tests {
     }
 
 
-    pub fn compare_read_sets(orig_set: ReadSet, new_set: ReadSet) {
+    pub fn strict_compare_read_sets(orig_set: ReadSet, new_set: ReadSet) {
+        
         assert_eq!(orig_set.len(), new_set.len());
 
         let mut keys1: Vec<Vec<u8>> = orig_set.keys().cloned().collect();
@@ -978,9 +1031,17 @@ mod tests {
             assert_eq!(k1, k2);
             assert_eq!(orig_set.get(k1), new_set.get(k2));
         }
-
-        assert_eq!(orig_set, new_set);
     }
+
+    pub fn subset_compare_read_sets(orig_set: ReadSet, new_set: ReadSet) {
+
+        assert!(orig_set.len() > new_set.len());
+
+        for k in new_set.keys() {
+            assert_eq!(new_set.get(k), orig_set.get(k))
+        }
+    }
+
 
     pub fn compare_read_sets_ignore_n(orig_set: ReadSet, new_set: ReadSet) {
         assert_eq!(orig_set.len(), new_set.len());
@@ -1054,7 +1115,7 @@ mod tests {
             load_fastq_set(&mut output_reads, open_fastq_pair_iter(r1, r2, i1));
         }
         
-        compare_read_sets(orig_reads, output_reads);
+        strict_compare_read_sets(orig_reads, output_reads);
     }
 
     #[test]
@@ -1123,7 +1184,7 @@ mod tests {
             load_fastq_set(&mut output_reads, open_fastq_pair_iter(r1, r2, i1));
         }
         
-        compare_read_sets(orig_reads, output_reads);
+        subset_compare_read_sets(orig_reads, output_reads);
     }
 
     #[test]
@@ -1156,7 +1217,7 @@ mod tests {
             load_fastq_set(&mut output_reads, open_fastq_pair_iter(r1, r2, i1));
         }
         
-        compare_read_sets(orig_reads, output_reads);
+        subset_compare_read_sets(orig_reads, output_reads);
 
         // Separately test I1 & I2 as if they were the main reads.
         let true_index_reads = open_fastq_pair_iter(
@@ -1172,6 +1233,6 @@ mod tests {
             load_fastq_set(&mut output_index_reads, open_fastq_pair_iter(i1.unwrap(), i2.unwrap(), None));
         }
 
-        compare_read_sets(orig_index_reads, output_index_reads);
+        subset_compare_read_sets(orig_index_reads, output_index_reads);
     }
 }
