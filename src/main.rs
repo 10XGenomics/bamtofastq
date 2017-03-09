@@ -89,6 +89,11 @@ const USAGE: &'static str = "
     NOTE: BAM produced by the BASIC and ALIGNER pipeline from Long Ranger 2.1.2 and earlier
     are not compatible with bamtofastq
 
+    NOTE: BAM files created by CR < 1.3 do not have @RG headers, so bamtofastq will use the GEM group
+    annotations attached to the CB (cell barcode) tag to split data from multiple input libraries.
+    Reads without a valid barcode do not carry the CB tag and will be dropped. These reads would 
+    not be included in any valid cell.
+
 Usage:
   bamtofastq [options] <bam> <output-path>
   bamtofastq (-h | --help)
