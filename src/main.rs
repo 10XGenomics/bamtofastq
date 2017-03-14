@@ -413,29 +413,40 @@ impl FormatBamRecords {
             },
             Some(..) => panic!("invalid type of RG header. record: {}", std::str::from_utf8(rec.qname()).unwrap()),
             None => {
+                let emit = |tag| {
+                    let corrected_bc = String::from_utf8(Vec::from(tag)).unwrap();
+                    let mut parts = (&corrected_bc).split("-");
+                    let _ = parts.next();
+                    match parts.next() {
+                        Some(v) => {
+                            match u32::from_str(v) {
+                                Ok(v) => {
+                                    //println!("got gg: {}", v);
+                                    let name = format!("gemgroup{:03}", v);
+                                    self.rg_spec.get(&name).map(|x| x.clone())
+                                },
+                                _ => None
+                            }
+                        },
+                        _ => None,
+                    }
+                };
+
                 // Workaround for early CR 1.1 and 1.2 data
                 // Attempt to extract the gem group out of the corrected barcode tag (CB)
                 match rec.aux(b"CB") {
-                    Some(Aux::String(s)) => { 
-                        let corrected_bc = String::from_utf8(Vec::from(s)).unwrap();
-                        let mut parts = (&corrected_bc).split("-");
-                        let _ = parts.next();
-                        match parts.next() {
-                            Some(v) => {
-                                match u32::from_str(v) {
-                                    Ok(v) => {
-                                        //println!("got gg: {}", v);
-                                        let name = format!("gemgroup{:03}", v);
-                                        self.rg_spec.get(&name).map(|x| x.clone())
-                                    },
-                                    _ => None
-                                }
-                            },
-                            _ => None,
-                        }
-                    },
-                    _ => None,
+                    Some(Aux::String(s)) => return emit(s),
+                    _ => (),
                 }
+
+                // Workaround for GemCode (Long Ranger 1.3) data
+                // Attempt to extract the gem group out of the corrected barcode tag (BX)
+                match rec.aux(b"BX") {
+                    Some(Aux::String(s)) => return emit(s),
+                    _ => (),
+                }
+
+                None
             }
         }
     }
@@ -613,7 +624,7 @@ impl FastqManager {
             let path = sample_def_paths.entry(samp).or_insert_with(|| {
                 let suffix = _samp.replace(":", "_");
                 let samp_path = out_path.join(suffix);
-                create_dir(&samp_path).expect("couldn't create output directory");
+                //create_dir(&samp_path).expect("couldn't create output directory");
                 samp_path
             });
             
@@ -744,6 +755,9 @@ impl FastqWriter {
     pub fn write(&mut self, r1: &FqRecord, r2: &FqRecord, i1: &Option<FqRecord>, i2: &Option<FqRecord>) {
 
         if self.total_written == 0 {
+            // Create the output dir if needed:
+            let _ = create_dir(&self.out_path);
+
             self.cycle_writers()
         }
 
@@ -853,9 +867,18 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Result<Vec<
                     f.rename = Some(vec!["R1".to_string(), "R3".to_string(), "R2".to_string(), "I1".to_string()])
                 }
 
-                if args.flag_gemcode || args.flag_lr20 || args.flag_cr11 {
-                    return Err("Supplied BAM file contains bamtofastq headers. Do not use a pipeline specific flag".into())
+                if args.flag_gemcode {
+                    return Err("Do not use a pipeline-specific command-line flag: --gemcode. Supplied BAM file already contains bamtofastq headers.".into())
                 }
+
+                if args.flag_lr20 {
+                    return Err("Do not use a pipeline-specific command-line flag: --lr20. Supplied BAM file already contains bamtofastq headers.".into())
+                }
+
+                if args.flag_cr11 {
+                    return Err("Do not use a pipeline-specific command-line flag: --cr11. Supplied BAM file already contains bamtofastq headers.".into())
+                }                
+
 
                 f
             },
