@@ -403,8 +403,7 @@ impl FormatBamRecords {
         spec
     }
 
-    pub fn find_rg(&self, rec: &Record) -> Option<Rg> {
-
+    fn try_get_rg(&self, rec: &Record) -> Option<Rg> {
         let rg = rec.aux(b"RG");
         match rg {
             Some(Aux::String(s)) => { 
@@ -412,42 +411,51 @@ impl FormatBamRecords {
                 self.rg_spec.get(&key).map(|x| x.clone())
             },
             Some(..) => panic!("invalid type of RG header. record: {}", std::str::from_utf8(rec.qname()).unwrap()),
-            None => {
-                let emit = |tag| {
-                    let corrected_bc = String::from_utf8(Vec::from(tag)).unwrap();
-                    let mut parts = (&corrected_bc).split("-");
-                    let _ = parts.next();
-                    match parts.next() {
-                        Some(v) => {
-                            match u32::from_str(v) {
-                                Ok(v) => {
-                                    //println!("got gg: {}", v);
-                                    let name = format!("gemgroup{:03}", v);
-                                    self.rg_spec.get(&name).map(|x| x.clone())
-                                },
-                                _ => None
-                            }
-                        },
-                        _ => None,
-                    }
-                };
+            None => None,
+        }
+    }
 
-                // Workaround for early CR 1.1 and 1.2 data
-                // Attempt to extract the gem group out of the corrected barcode tag (CB)
-                match rec.aux(b"CB") {
-                    Some(Aux::String(s)) => return emit(s),
-                    _ => (),
+    pub fn find_rg(&self, rec: &Record) -> Option<Rg> {
+
+        let main_rg_tag = self.try_get_rg(rec);
+
+        if main_rg_tag.is_some() {
+            return main_rg_tag
+        } else {
+            let emit = |tag| {
+                let corrected_bc = String::from_utf8(Vec::from(tag)).unwrap();
+                let mut parts = (&corrected_bc).split("-");
+                let _ = parts.next();
+                match parts.next() {
+                    Some(v) => {
+                        match u32::from_str(v) {
+                            Ok(v) => {
+                                //println!("got gg: {}", v);
+                                let name = format!("gemgroup{:03}", v);
+                                self.rg_spec.get(&name).map(|x| x.clone())
+                            },
+                            _ => None
+                        }
+                    },
+                    _ => None,
                 }
+            };
 
-                // Workaround for GemCode (Long Ranger 1.3) data
-                // Attempt to extract the gem group out of the corrected barcode tag (BX)
-                match rec.aux(b"BX") {
-                    Some(Aux::String(s)) => return emit(s),
-                    _ => (),
-                }
-
-                None
+            // Workaround for early CR 1.1 and 1.2 data
+            // Attempt to extract the gem group out of the corrected barcode tag (CB)
+            match rec.aux(b"CB") {
+                Some(Aux::String(s)) => return emit(s),
+                _ => (),
             }
+
+            // Workaround for GemCode (Long Ranger 1.3) data
+            // Attempt to extract the gem group out of the corrected barcode tag (BX)
+            match rec.aux(b"BX") {
+                Some(Aux::String(s)) => return emit(s),
+                _ => (),
+            }
+
+            None
         }
     }
 
