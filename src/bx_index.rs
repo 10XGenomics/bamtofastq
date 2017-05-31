@@ -56,7 +56,7 @@ impl BxIndex {
 pub fn get_records_for_bx<R: Read>(index: &BxIndex, reader: &mut R, bx: &String) -> Vec<Record> {
 
     let start = index.get_voffset(bx);
-    reader.seek_voffset(start as i64);
+    reader.seek(start as i64);
 
     let mut rec_iter = reader.records();
     let mut recs = Vec::new();

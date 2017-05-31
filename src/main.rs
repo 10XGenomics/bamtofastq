@@ -63,7 +63,7 @@ mod errors {
     error_chain! { 
         foreign_links {
             Io(::std::io::Error) #[doc = "Link to a `std::error::Error` type."];
-            Bam(::rust_htslib::bam::SeekError);
+            Bam(::rust_htslib::bam::FetchError);
         }
     }
 }
@@ -111,7 +111,7 @@ Options:
   --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
   --lr20               Convert a BAM produced by Longranger 2.0
   --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
-  --bx-list=L
+  --bx-list=L          Only include BX values listed in text file L. Requires BX-sorted and index BAM file (see Long Ranger support for details).
   -h --help            Show this screen.
 ";
 
@@ -843,7 +843,7 @@ pub fn go(args: Args, cache_size: Option<usize>) -> Result<Vec<(PathBuf, PathBuf
             let loc = try!(locus::Locus::from_str(locus).chain_err(|| "Invalid locus argument. Please use format: 'chr1:123-456'"));
             let mut bam = try!(bam::IndexedReader::from_path(&args.arg_bam).chain_err(|| "Error opening BAM file. The BAM file must be indexed when using --locus"));
             let tid = try!(bam.header().tid(loc.chrom.as_bytes()).ok_or(format!("Requested chromosome not present: {}", loc.chrom)));
-            try!(bam.seek(tid, loc.start, loc.end));
+            try!(bam.fetch(tid, loc.start, loc.end));
             inner(args.clone(), cache_size, bam)
         },
         None => {
@@ -1070,9 +1070,24 @@ mod tests {
 
     type ReadSet = HashMap<Vec<u8>, RawReadSet>;
 
+    fn strip_extra_headers(header: &Vec<u8>) -> Vec<u8> {
+        let head_str = String::from_utf8(header.clone()).unwrap();
+        let mut split = head_str.split_whitespace();
+        split.next().unwrap().to_string().into_bytes()
+    }
+
+    fn strip_header_fqrec(r: FqRec) -> FqRec {
+        (strip_extra_headers(&(r.0)), r.1, r.2)
+    }
+
+    fn strip_header_raw_read_set(r: RawReadSet) -> RawReadSet {
+        (strip_header_fqrec(r.0), strip_header_fqrec(r.1), r.2.map(|x| strip_header_fqrec(x)))
+    }
+
+    // Load fastqs, but strip extra elements of the FASTQ header beyond the first space -- they will not be in the BAM
     pub fn load_fastq_set<I: Iterator<Item=RawReadSet>>(reads: &mut ReadSet, iter: I) {
         for r in iter {
-            reads.insert((r.0).0.clone(), r);
+            reads.insert(strip_extra_headers(&((r.0).0)), strip_header_raw_read_set(r));
         }
     }
 
