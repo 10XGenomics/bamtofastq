@@ -11,7 +11,7 @@ error_chain! {
 }
 
 
-#[derive(PartialEq, Eq, Ord, PartialOrd, Hash, Debug, RustcDecodable, Clone)]
+#[derive(PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Deserialize, Clone)]
 pub struct Locus {
     pub chrom: String,
     pub start: u32,
@@ -52,11 +52,11 @@ impl FromStr for Locus {
 
         let cap = cap.unwrap();
 
-        let start_s = remove_commas(cap.at(2).unwrap());
-        let end_s = remove_commas(cap.at(4).unwrap());
+        let start_s = remove_commas(cap.get(2).unwrap().as_str());
+        let end_s = remove_commas(cap.get(4).unwrap().as_str());
 
         Ok(Locus {
-            chrom: cap.at(1).unwrap().to_string(),
+            chrom: cap.get(1).unwrap().as_str().to_string(),
             start: FromStr::from_str(&start_s).unwrap(),
             end: FromStr::from_str(&end_s).unwrap(),
         })
