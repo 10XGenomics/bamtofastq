@@ -4,6 +4,8 @@
 #[macro_use]
 extern crate error_chain;
 
+#[macro_use]
+extern crate serde_derive;
 
 extern crate docopt;
 extern crate rust_htslib;
@@ -11,10 +13,12 @@ extern crate flate2;
 extern crate shardio;
 extern crate bincode;
 extern crate itertools;
-extern crate rustc_serialize;
 extern crate regex;
 extern crate tempfile;
 extern crate tempdir;
+extern crate serde;
+
+extern crate rustc_serialize; // Remove once docopt moves to serde
 
 #[cfg(test)]
 extern crate fastq_10x;
@@ -25,6 +29,7 @@ use std::fs::create_dir;
 use std::path::{PathBuf, Path};
 use std::hash::{Hash, SipHasher, Hasher};
 use std::str::FromStr;
+use std::result;
 
 use std::collections::HashMap;
 use itertools::Itertools;
@@ -34,19 +39,21 @@ use tempfile::NamedTempFile;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
-use rust_htslib::bam::{self, Read};
+use rust_htslib::bam::{self, Read, ReadError};
 use rust_htslib::bam::record::{Aux, Record};
 
-use bincode::rustc_serialize::{encode_into, decode};
-use shardio::shard::{Serializer, Shardable, ShardWriteManager, ShardReader};
-use shardio::ThreadProxyWriter;
+use shardio::{ShardDef, ShardWriteManager, ShardReader};
+use shardio::helper::ThreadProxyWriter;
 
 use regex::Regex;
 use docopt::Docopt;
 
 mod locus;
 mod rpcache;
+mod bx_index;
 use rpcache::RpCache;
+use bx_index::BxListIter;
+
 
 // We'll put our errors in an `errors` module, and other modules in
 // this crate will `use errors::*;` to get access to everything
@@ -56,7 +63,7 @@ mod errors {
     error_chain! { 
         foreign_links {
             Io(::std::io::Error) #[doc = "Link to a `std::error::Error` type."];
-            Bam(::rust_htslib::bam::SeekError);
+            Bam(::rust_htslib::bam::FetchError);
         }
     }
 }
@@ -104,6 +111,7 @@ Options:
   --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
   --lr20               Convert a BAM produced by Longranger 2.0
   --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
+  --bx-list=L          Only include BX values listed in text file L. Requires BX-sorted and index BAM file (see Long Ranger support for details).
   -h --help            Show this screen.
 ";
 
@@ -131,6 +139,7 @@ pub struct Args {
     arg_bam: String,
     arg_output_path: String,
     flag_locus: Option<String>,
+    flag_bx_list: Option<String>,
     flag_reads_per_fastq: usize,
     flag_gemcode: bool,
     flag_lr20: bool,
@@ -138,7 +147,7 @@ pub struct Args {
 }
 
 /// A Fastq record ready to be written
-#[derive(Debug, RustcEncodable, RustcDecodable, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]
 struct FqRecord {
     head: Vec<u8>,
     seq: Vec<u8>,
@@ -146,14 +155,14 @@ struct FqRecord {
 }
 
 /// Which read in a pair we have
-#[derive(Clone, Copy, Debug, RustcEncodable, RustcDecodable, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq)]
 enum ReadNum {
     R1,
     R2
 }
 
 /// Internally serialized read. Used for re-uniting discordant read pairs
-#[derive(Debug, RustcEncodable, RustcDecodable, PartialOrd, Ord, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialOrd, Ord, Eq, PartialEq)]
 struct SerFq {
     read_group: Option<Rg>,
     header_key: Vec<u8>,
@@ -163,27 +172,14 @@ struct SerFq {
     i2: Option<FqRecord>,
 }
 
-/// Serialization of SerFq structs
-#[derive(Clone)]
-pub struct SerFqImpl {}
 
-impl Serializer<SerFq> for SerFqImpl {
-    fn serialize(&self, items: &Vec<SerFq>, buf: &mut Vec<u8>) {
-        encode_into(items, buf, bincode::SizeLimit::Infinite).unwrap();
-    }
-
-    fn deserialize(&self, buf: &mut Vec<u8>, data: &mut Vec<SerFq>) {
-        let mut buf_slice = buf.as_mut_slice();
-        let r: Vec<SerFq> = decode(&mut buf_slice).unwrap();
-        data.extend(r);
-    }
-}
+struct SerFqShard;
 
 /// Shard SerFq structs based on a hash of the head string
-impl Shardable for SerFq {
-    fn shard(&self) -> usize {
+impl ShardDef<SerFq> for SerFqShard {
+    fn get_shard(v: &SerFq) -> usize {
         let mut s = SipHasher::new();
-        self.header_key.hash(&mut s);
+        v.header_key.hash(&mut s);
         s.finish() as usize
     }
 }
@@ -355,7 +351,7 @@ impl FormatBamRecords {
                     if cap.is_none() {
                         None
                     } else {
-                        let lane_u32 = u32::from_str(cap.unwrap().at(1).unwrap()).unwrap();
+                        let lane_u32 = u32::from_str(cap.unwrap().get(1).unwrap().as_str()).unwrap();
                         Some((v.clone(), rg, lane_u32))
                     }
                 }
@@ -380,8 +376,8 @@ impl FormatBamRecords {
                 Some(c) => {
                     let mut read_spec = Vec::new();
 
-                    let read = c.at(1).unwrap().to_string();
-                    let tag_list = c.at(2).unwrap();
+                    let read = c.get(1).unwrap().as_str().to_string();
+                    let tag_list = c.get(2).unwrap().as_str();
                     let spec_elems = tag_list.split(',');
                     for el in spec_elems {
                         if el == "SEQ:QUAL" {
@@ -847,7 +843,7 @@ pub fn go(args: Args, cache_size: Option<usize>) -> Result<Vec<(PathBuf, PathBuf
             let loc = try!(locus::Locus::from_str(locus).chain_err(|| "Invalid locus argument. Please use format: 'chr1:123-456'"));
             let mut bam = try!(bam::IndexedReader::from_path(&args.arg_bam).chain_err(|| "Error opening BAM file. The BAM file must be indexed when using --locus"));
             let tid = try!(bam.header().tid(loc.chrom.as_bytes()).ok_or(format!("Requested chromosome not present: {}", loc.chrom)));
-            try!(bam.seek(tid, loc.start, loc.end));
+            try!(bam.fetch(tid, loc.start, loc.end));
             inner(args.clone(), cache_size, bam)
         },
         None => {
@@ -919,14 +915,33 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, bam: R) -> Result<Vec<
     let fq = FastqManager::new(out_path, formatter.clone(), "bamtofastq".to_string(), args.flag_reads_per_fastq);
  
     if formatter.is_double_ended() {
-        proc_double_ended(bam, formatter, fq, cache_size, args.flag_locus.is_some())
+        if args.flag_bx_list.is_some() {
+
+            // BX-sorted case: get a selected set of BXs
+            let bxi = try!(bx_index::BxIndex::new(args.arg_bam));
+            let bx_iter = try!(BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam));
+            proc_double_ended(bx_iter, formatter, fq, cache_size, false)
+        } else {
+
+            // Standard pos-sorted case
+            proc_double_ended(bam.records(), formatter, fq, cache_size, args.flag_locus.is_some())
+        }
     } else {
-        proc_single_ended(bam, formatter, fq)
-    }
+        if args.flag_bx_list.is_some() {
+            // BX-sorted case: get a selected set of BXs
+            let bxi = try!(bx_index::BxIndex::new(args.arg_bam));
+            let bx_iter = try!(BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam));
+            proc_double_ended(bx_iter, formatter, fq, cache_size, false)
+        } else {
+            proc_single_ended(bam.records(), formatter, fq)
+        }
+    } 
 }
 
 
-fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize, restricted_locus: bool) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
+fn proc_double_ended<I>(records: I, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize, restricted_locus: bool) -> 
+Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> 
+where I: Iterator<Item=result::Result<Record, ReadError>> {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
     let tmp_file = try!(NamedTempFile::new());
 
@@ -935,13 +950,13 @@ fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
         let mut rp_cache = RpCache::new();
 
         // For chimeric read piars that are showing up in different places, we will write these to disk for later use
-        let w: ShardWriteManager<SerFq> = ShardWriteManager::new(tmp_file.path(), 2048, 256, 2, SerFqImpl{});
+        let w: ShardWriteManager<SerFq, SerFqShard> = ShardWriteManager::new(tmp_file.path(), 2048, 256, 2);
         let mut sender = w.get_sender();
 
         // Count total R1s observed, so we can make sure we've preserved all read pairs
         let mut total_read_pairs = 0;
 
-        for _rec in bam.records() {
+        for _rec in records {
             let rec = _rec.unwrap();
 
             if rec.is_secondary() || rec.is_supplementary() {
@@ -982,7 +997,7 @@ fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
     };
 
     // Read back the shards, sort to find pairs, and write.
-    let reader = ShardReader::open(tmp_file.path(), SerFqImpl{});
+    let reader = ShardReader::<SerFq>::open(tmp_file.path());
 
     let mut ncached = 0;
     for s in 0..reader.num_shards() {
@@ -1016,13 +1031,15 @@ fn proc_double_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: 
     Ok(fq.paths())
 }
 
-fn proc_single_ended<R: bam::Read>(bam: R, formatter: FormatBamRecords, mut fq: FastqManager) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
+fn proc_single_ended<I>(records: I, formatter: FormatBamRecords, mut fq: FastqManager) ->
+  Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> 
+  where I: Iterator<Item=result::Result<Record, ReadError>> {
 
     let total_reads = {
         // Count total R1s observed, so we can make sure we've preserved all read pairs
         let mut total_reads = 0;
 
-        for _rec in bam.records() {
+        for _rec in records {
             let rec = _rec.unwrap();
 
             if rec.is_secondary() || rec.is_supplementary() {
@@ -1053,9 +1070,24 @@ mod tests {
 
     type ReadSet = HashMap<Vec<u8>, RawReadSet>;
 
+    fn strip_extra_headers(header: &Vec<u8>) -> Vec<u8> {
+        let head_str = String::from_utf8(header.clone()).unwrap();
+        let mut split = head_str.split_whitespace();
+        split.next().unwrap().to_string().into_bytes()
+    }
+
+    fn strip_header_fqrec(r: FqRec) -> FqRec {
+        (strip_extra_headers(&(r.0)), r.1, r.2)
+    }
+
+    fn strip_header_raw_read_set(r: RawReadSet) -> RawReadSet {
+        (strip_header_fqrec(r.0), strip_header_fqrec(r.1), r.2.map(|x| strip_header_fqrec(x)))
+    }
+
+    // Load fastqs, but strip extra elements of the FASTQ header beyond the first space -- they will not be in the BAM
     pub fn load_fastq_set<I: Iterator<Item=RawReadSet>>(reads: &mut ReadSet, iter: I) {
         for r in iter {
-            reads.insert((r.0).0.clone(), r);
+            reads.insert(strip_extra_headers(&((r.0).0)), strip_header_raw_read_set(r));
         }
     }
 
@@ -1142,6 +1174,7 @@ mod tests {
             flag_cr11: false,
             flag_reads_per_fastq: 100000,
             flag_locus: None,
+            flag_bx_list: None,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1174,6 +1207,7 @@ mod tests {
             flag_cr11: false,
             flag_reads_per_fastq: 100000,
             flag_locus: None,
+            flag_bx_list: None,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1211,6 +1245,7 @@ mod tests {
             flag_cr11: false,
             flag_reads_per_fastq: 100000,
             flag_locus: None,
+            flag_bx_list: None,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1243,6 +1278,7 @@ mod tests {
             flag_cr11: false,
             flag_reads_per_fastq: 100000,
             flag_locus: None,
+            flag_bx_list: None,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
