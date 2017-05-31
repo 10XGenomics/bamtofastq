@@ -20,14 +20,14 @@ pub struct BxIndex {
 
 impl BxIndex {
     pub fn new<P: AsRef<Path>>(bam_file: P) -> Result<BxIndex> {
-        let bxi_fn = bam_file.as_ref().join(".bxi");
+        let bxi_fn = bam_file.as_ref().with_extension("bam.bxi");
 
 
         let f = try!(File::open(bxi_fn.clone()).
             chain_err(|| 
                 format!("Couldn't find BX index: '{:?}'. You must sort you BAM file with 'samtools sort -t BX' and index with 'bxindex'", bxi_fn)
             ));
-        let mut reader = csv::Reader::from_reader(f);
+        let mut reader = csv::ReaderBuilder::new().has_headers(false).delimiter(b'\t').from_reader(f);
         let obs: Vec<BcObs> = reader.deserialize().map(|x| x.unwrap()).collect();
 
         let res = BxIndex { obs };
@@ -38,7 +38,7 @@ impl BxIndex {
     {
         match self.obs.binary_search_by_key(&bx, |x| &x.bx) {
             Ok(pos) => {
-                self.obs[pos-1].offset
+                self.obs[pos].offset
             },
             Err(pos) => {
                 self.obs[pos-1].offset
@@ -48,7 +48,7 @@ impl BxIndex {
 
     pub fn get_bx_list<P: AsRef<Path>>(bx_list_file: P) -> Result<Vec<String>> {
         let f = try!(File::open(bx_list_file));
-        let mut reader = csv::Reader::from_reader(f);
+        let mut reader = csv::ReaderBuilder::new().has_headers(false).delimiter(b'\t').from_reader(f);
         Ok(reader.deserialize().map(|x| x.unwrap()).collect())
     }
 }
@@ -100,13 +100,22 @@ pub struct BxListIter<R: Read> {
 }
 
 impl<R: Read> BxListIter<R> {
-    pub fn new(bx_list: Vec<String>, index: BxIndex, reader: R) -> BxListIter<R> {
+    pub fn new(bx_list: Vec<String>, index: BxIndex, mut reader: R) -> BxListIter<R> {
+        let cur_vec =
+            if bx_list.len() > 0 { 
+                let mut v = get_records_for_bx(&index, &mut reader, &bx_list[0]);
+                v.reverse();
+                v
+            } else { 
+                vec![]
+            };
+
         BxListIter {
             index,
             reader,
             bx_list,
             cur_bx: 0,
-            cur_vec: vec![],
+            cur_vec
         }
     }
 
@@ -120,19 +129,22 @@ impl<R: Read> Iterator for BxListIter<R> {
     type Item = result::Result<Record, ReadError>;
 
     fn next(&mut self) -> Option<result::Result<Record, ReadError>> {
-        loop {
-            if self.cur_bx == self.bx_list.len() {
-                return None
-            }
+
+        while self.cur_bx <= self.bx_list.len() {
 
             if self.cur_vec.len() == 0 {
+                self.cur_bx += 1;
+                if self.cur_bx == self.bx_list.len() {
+                    break;
+                }
+
                 self.cur_vec = get_records_for_bx(&self.index, &mut self.reader, &self.bx_list[self.cur_bx]);
                 self.cur_vec.reverse();
             }
 
             match self.cur_vec.pop() {
                 Some(v) => return Some(Ok(v)),
-                None => { self.cur_bx += 1 },
+                None => (),
             }
         }
 
