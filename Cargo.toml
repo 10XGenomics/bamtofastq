@@ -5,7 +5,7 @@ authors = ["Patrick Marks <patrick@10xgenomics.com>"]
 
 [dependencies]
 docopt = "*"
-rust-htslib = { git = "https://github.com/rust-bio/rust-htslib.git", rev = "a9d89bc474e06c3f4" }
+rust-htslib = { git = "https://github.com/rust-bio/rust-htslib.git", rev = "a8a887e" }
 flate2 = "*"
 shardio = { path = "external/rust-shardio" }
 bincode = "*"
