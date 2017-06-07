@@ -113,7 +113,7 @@ impl<R: Read> BxListIter<R> {
         BxListIter {
             index: index,
             reader: reader,
-            bx_liist: bx_list,
+            bx_list: bx_list,
             cur_bx: 0,
             cur_vec: cur_vec
         }
