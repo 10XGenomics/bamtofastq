@@ -32,9 +32,9 @@ use std::str::FromStr;
 use std::result;
 
 use std::collections::HashMap;
-use itertools::Itertools;
 
 use tempfile::NamedTempFile;
+use itertools::Itertools;
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
