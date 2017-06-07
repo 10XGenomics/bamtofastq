@@ -30,7 +30,7 @@ impl BxIndex {
         let mut reader = csv::ReaderBuilder::new().has_headers(false).delimiter(b'\t').from_reader(f);
         let obs: Vec<BcObs> = reader.deserialize().map(|x| x.unwrap()).collect();
 
-        let res = BxIndex { obs };
+        let res = BxIndex { obs: obs };
         Ok(res)
     }
 
@@ -111,11 +111,11 @@ impl<R: Read> BxListIter<R> {
             };
 
         BxListIter {
-            index,
-            reader,
-            bx_list,
+            index: index,
+            reader: reader,
+            bx_liist: bx_list,
             cur_bx: 0,
-            cur_vec
+            cur_vec: cur_vec
         }
     }
 
