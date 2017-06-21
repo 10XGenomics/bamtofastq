@@ -18,8 +18,6 @@ extern crate tempfile;
 extern crate tempdir;
 extern crate serde;
 
-extern crate rustc_serialize; // Remove once docopt moves to serde
-
 #[cfg(test)]
 extern crate fastq_10x;
 
@@ -134,7 +132,7 @@ determine the Gem group.  Reads without a CB tag will get dropped.
 
 
 
-#[derive(Debug, RustcDecodable, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Args {
     arg_bam: String,
     arg_output_path: String,
@@ -826,7 +824,7 @@ fn run() -> Result<()> {
 
     println!("bamtofastq v{}", VERSION);
     let args: Args = Docopt::new(USAGE)
-                         .and_then(|d| d.decode())
+                         .and_then(|d| d.deserialize())
                          .unwrap_or_else(|e| e.exit());
 
     let _ = try!(go(args, None));

@@ -15,9 +15,8 @@ tempfile = "*"
 tempdir = "*"
 error-chain ="*"
 csv = "1.0.0-beta.3"
-serde = "1.0.7"
-serde_derive = "1"
-rustc-serialize = "0.3"
+serde = "^1.0.7"
+serde_derive = "^1"
 
 [dev-dependencies]
 fastq_10x = { path = "external/rust-fastq-10x" }
