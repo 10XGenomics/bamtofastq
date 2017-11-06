@@ -3,13 +3,14 @@ use rust_htslib::bam::record::{Aux, Record};
 
 /// Read-pair cache. Let's us stream through the BAM and find nearby mates so we can write them out immediately
 pub struct RpCache {
+    pub cache_size: usize,
     pub cache: HashMap<Vec<u8>, Record>
 }
 
 impl RpCache {
 
-    pub fn new() -> RpCache {
-        RpCache { cache: HashMap::new() }
+    pub fn new(cache_size: usize) -> RpCache {
+        RpCache { cache: HashMap::new(), cache_size }
     }
 
     pub fn cache_rec(&mut self, rec: Record) -> Option<(Record, Record)> {
@@ -33,19 +34,25 @@ impl RpCache {
 
     pub fn clear_orphans(&mut self, current_tid: i32, current_pos: i32) -> Vec<Record> {
         let mut orphans = Vec::new();
-        //let mut new_cache = HashMap::new();
 
+        let mut dist = 5000;
         let mut orphan_keys = Vec::new();
-        for (key, rec) in self.cache.iter() {
-            // Evict unmapped reads, reads on a previous chromosome, or reads that are >5kb behind the current position
-            if rec.tid() == -1 || (current_pos - rec.pos()).abs() > 5000 || rec.tid() != current_tid {
-                orphan_keys.push(key.clone());
-            }
-        }
 
-        for k in orphan_keys {
-            let rec = self.cache.remove(&k).unwrap();
-            orphans.push(rec);
+        while self.cache.len() > self.cache_size / 2 {
+
+            for (key, rec) in self.cache.iter() {
+                // Evict unmapped reads, reads on a previous chromosome, or reads that are >5kb behind the current position
+                if rec.tid() == -1 || (current_pos - rec.pos()).abs() > dist || rec.tid() != current_tid {
+                    orphan_keys.push(key.clone());
+                }
+            }
+
+            for k in orphan_keys {
+                let rec = self.cache.remove(&k).unwrap();
+                orphans.push(rec);
+            }
+
+            dist = dist / 2;
         }
 
         orphans
