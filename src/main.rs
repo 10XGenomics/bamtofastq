@@ -834,7 +834,7 @@ fn run() -> Result<()> {
 
 pub fn go(args: Args, cache_size: Option<usize>) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> {
 
-    let cache_size = cache_size.unwrap_or(200000);
+    let cache_size = cache_size.unwrap_or(500000);
  
     match args.flag_locus {
         Some(ref locus) => {
@@ -945,7 +945,7 @@ where I: Iterator<Item=result::Result<Record, ReadError>> {
 
     let total_read_pairs = {
         // Cache for efficiently finding local read pairs
-        let mut rp_cache = RpCache::new();
+        let mut rp_cache = RpCache::new(cache_size);
 
         // For chimeric read piars that are showing up in different places, we will write these to disk for later use
         let w: ShardWriteManager<SerFq, SerFqShard> = ShardWriteManager::new(tmp_file.path(), 2048, 256, 2);
