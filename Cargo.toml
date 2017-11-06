@@ -20,3 +20,6 @@ serde_derive = "^1"
 
 [dev-dependencies]
 fastq_10x = { path = "external/rust-fastq-10x" }
+
+[profile.release]
+debug = true
