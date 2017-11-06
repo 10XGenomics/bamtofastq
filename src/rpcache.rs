@@ -36,9 +36,10 @@ impl RpCache {
         let mut orphans = Vec::new();
 
         let mut dist = 5000;
-        let mut orphan_keys = Vec::new();
+       
 
         while self.cache.len() > self.cache_size / 2 {
+            let mut orphan_keys = Vec::new();
 
             for (key, rec) in self.cache.iter() {
                 // Evict unmapped reads, reads on a previous chromosome, or reads that are >5kb behind the current position
