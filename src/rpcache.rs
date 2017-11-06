@@ -38,7 +38,7 @@ impl RpCache {
         let mut dist = 5000;
        
 
-        while self.cache.len() > self.cache_size / 2 {
+        while self.cache.len() > self.cache_size / 2 && dist > 100{
             let mut orphan_keys = Vec::new();
 
             for (key, rec) in self.cache.iter() {
@@ -54,6 +54,15 @@ impl RpCache {
             }
 
             dist = dist / 2;
+        }
+
+        // Cache got too full -- just clear it
+        if dist <= 100 {
+            for (_, rec) in self.cache.drain() {
+                orphans.push(rec)
+            }
+
+            self.cache = HashMap::new();
         }
 
         orphans
