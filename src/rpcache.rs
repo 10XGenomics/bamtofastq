@@ -33,18 +33,21 @@ impl RpCache {
 
     pub fn clear_orphans(&mut self, current_tid: i32, current_pos: i32) -> Vec<Record> {
         let mut orphans = Vec::new();
-        let mut new_cache = HashMap::new();
+        //let mut new_cache = HashMap::new();
 
-        for (key, rec) in self.cache.drain() {
+        let mut orphan_keys = Vec::new();
+        for (key, rec) in self.cache.iter() {
             // Evict unmapped reads, reads on a previous chromosome, or reads that are >5kb behind the current position
             if rec.tid() == -1 || (current_pos - rec.pos()).abs() > 5000 || rec.tid() != current_tid {
-                orphans.push(rec);
-            } else {
-                new_cache.insert(key, rec);
+                orphan_keys.push(key.clone());
             }
         }
 
-        self.cache = new_cache;
+        for k in orphan_keys {
+            let rec = self.cache.remove(&k).unwrap();
+            orphans.push(rec);
+        }
+
         orphans
     }
 
