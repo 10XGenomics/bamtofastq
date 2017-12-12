@@ -49,6 +49,7 @@ use docopt::Docopt;
 mod locus;
 mod rpcache;
 mod bx_index;
+mod fastq_reader;
 use rpcache::RpCache;
 use bx_index::BxListIter;
 
@@ -1063,7 +1064,7 @@ fn proc_single_ended<I>(records: I, formatter: FormatBamRecords, mut fq: FastqMa
 mod tests {
     use tempdir;
     use super::*;
-    use fastq_10x::*;
+    use fastq_reader::*;
     use std::collections::HashMap;
 
     type ReadSet = HashMap<Vec<u8>, RawReadSet>;

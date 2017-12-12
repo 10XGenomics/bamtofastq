@@ -37,9 +37,9 @@ dependencies = [
  "csv 1.0.0-beta.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "docopt 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "error-chain 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "fastq_10x 0.1.0",
  "flate2 0.2.19 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ordered-float 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rust-htslib 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -133,14 +133,6 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "backtrace 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "fastq_10x"
-version = "0.1.0"
-dependencies = [
- "flate2 0.2.19 (registry+https://github.com/rust-lang/crates.io-index)",
- "ordered-float 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
