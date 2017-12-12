@@ -7,7 +7,7 @@ authors = ["Patrick Marks <patrick@10xgenomics.com>"]
 docopt = "*"
 rust-htslib = ">=0.12" 
 flate2 = "*"
-shardio = { path = "external/rust-shardio" }
+shardio = { git = "https://github.com/10XGenomics/rust-shardio.git" }
 bincode = "*"
 itertools = ">=0.6.0"
 regex = "*"
