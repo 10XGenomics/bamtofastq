@@ -5,16 +5,17 @@ authors = ["Patrick Marks <patrick@10xgenomics.com>"]
 
 [dependencies]
 docopt = "*"
-rust-htslib = ">=0.12" 
+rust-htslib = "^0.12" 
 flate2 = "*"
-shardio = { git = "https://github.com/10XGenomics/rust-shardio.git" }
+#shardio = { git = "https://github.com/10XGenomics/rust-shardio.git" }
+shardio = { path = "../rust-shardio" }
 bincode = "*"
 itertools = ">=0.6.0"
 regex = "*"
 tempfile = "*"
 tempdir = "*"
 error-chain ="*"
-csv = "1.0.0-beta.3"
+csv = "1.0.0-beta.5"
 serde = "^1.0.7"
 serde_derive = "^1"
 ordered-float = "0.3.0"

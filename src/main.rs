@@ -18,9 +18,6 @@ extern crate tempfile;
 extern crate tempdir;
 extern crate serde;
 
-#[cfg(test)]
-extern crate fastq_10x;
-
 use std::io::{Write, BufWriter};
 use std::fs::File;
 use std::fs::create_dir;
