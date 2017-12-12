@@ -1,3 +1,5 @@
+// Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
+
 extern crate flate2;
 extern crate ordered_float;
 

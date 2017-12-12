@@ -1,3 +1,5 @@
+// Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
+
 extern crate csv;
 
 use std::path::{Path, PathBuf};

@@ -1,3 +1,5 @@
+// Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
+
 use std::str::FromStr;
 use regex::Regex;
 use std::fmt;

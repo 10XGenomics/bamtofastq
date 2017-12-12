@@ -1,3 +1,5 @@
+// Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
+
 // `error_chain!` can recurse deeply
 #![recursion_limit = "1024"]
 
