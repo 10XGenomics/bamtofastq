@@ -1,7 +1,10 @@
+// Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
+
 use std::collections::HashMap;
 use rust_htslib::bam::record::{Aux, Record};
 
 /// Read-pair cache. Let's us stream through the BAM and find nearby mates so we can write them out immediately
+/// Reads whose mate is not found promptly are written to disk and matched up later
 pub struct RpCache {
     pub cache_size: usize,
     pub cache: HashMap<Vec<u8>, Record>

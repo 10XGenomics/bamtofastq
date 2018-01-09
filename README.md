@@ -10,6 +10,7 @@ The executable will appear at `target/release/bamtofastq`.  As usual it's import
 
 ## Running
 
+```
 10x Genomics BAM to FASTQ converter.
 
 Usage:
@@ -17,20 +18,19 @@ Usage:
   bamtofastq (-h | --help)
   bamtofastq --version
 
-Options:
+Usage:
+  bamtofastq [options] <bam> <output-path>
+  bamtofastq (-h | --help)
 
-  --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 200000000]
-  
+Options:
+  --locus=<locus>      Optional. Only include read pairs mapping to locus. Use chrom:start-end format.
+  --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 50000000]
   --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
-  
   --lr20               Convert a BAM produced by Longranger 2.0
-  
   --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
-  
+  --bx-list=L          Only include BX values listed in text file L. Requires BX-sorted and index BAM file (see Long Ranger support for details).
   -h --help            Show this screen.
-  
-  --version            Show version.
-  
+```  
 
 
 ## BAM file format support
@@ -42,11 +42,11 @@ Older 10x pipelines require arguments to indicate which pipeline created the BAM
 
 Special entries are inserted into @CO (comment) lines in the BAM header, indicating how to recover the original FASTQ sequences from the BAM record.
 
-'''
+```
 10x_bam_to_fastq:R1(RX:QX,TR:TQ,SEQ:QUAL)
 10x_bam_to_fastq:R2(SEQ:QUAL)
 10x_bam_to_fastq:I1(BC:QT)
-'''
+```
 
 The 'R1' line indicates that the R1 FASTQ sequence is composed of the RX tag, followed by the TR tag, followed by the sequence stored in the BAM record.
 The QV sequence is composed of the QX tag, the TQ tag followed by the QVs stored in the record. The seqeunce and qv stored in the record need to be
@@ -66,12 +66,3 @@ in the BAM file.
 
 * Multi-Gem Group BAM files created by Cell Ranger 1.2 and earlier do not carry Read Group tags, so reads from different GEM groups cannot be distinguished.
 * 'Unaligned' BAM files created by the BASIC pipeline in Long Ranger versions prior to 2.1.3, due to missing R1/R2 flags.
-
-
-
-## 10x internal links
-
-Some internal links:
-https://10xtech.atlassian.net/browse/LONGRANGER-1733
-https://10xtech.atlassian.net/browse/LONGRANGER-1639
-https://10xtech.atlassian.net/browse/CSR-61
