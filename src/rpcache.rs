@@ -22,7 +22,9 @@ impl RpCache {
                 } else if old_rec.is_first_in_template() && rec.is_last_in_template() {
                     Some((old_rec, rec))
                 } else {
-                    panic!("invalid pair")
+                    println!("Found invalid set of BAM record for qname: {}.", String::from_utf8_lossy(rec.qname()));
+                    println!("This may be caused by inputting the same FASTQ record to Long Ranger twice");
+                    panic!("invalid BAM record detected: {}", String::from_utf8_lossy(rec.qname()));
                 }
             },
             None => {
