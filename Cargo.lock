@@ -44,7 +44,7 @@ dependencies = [
  "rust-htslib 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "shardio 0.1.0",
+ "shardio 0.1.0 (git+https://github.com/10XGenomics/rust-shardio.git)",
  "tempdir 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 2.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -370,6 +370,7 @@ dependencies = [
 [[package]]
 name = "shardio"
 version = "0.1.0"
+source = "git+https://github.com/10XGenomics/rust-shardio.git#1b7dff84ec9106ed6496b3e846c58e118b970818"
 dependencies = [
  "bincode 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -552,6 +553,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum serde 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)" = "c2f530d36fb84ec48fb7146936881f026cdbf4892028835fd9398475f82c1bb4"
 "checksum serde_derive 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)" = "10552fad5500771f3902d0c5ba187c5881942b811b7ba0d8fbbfbf84d80806d3"
 "checksum serde_derive_internals 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)" = "37aee4e0da52d801acfbc0cc219eb1eda7142112339726e427926a6f6ee65d3a"
+"checksum shardio 0.1.0 (git+https://github.com/10XGenomics/rust-shardio.git)" = "<none>"
 "checksum skeptic 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "dd7d8dc1315094150052d0ab767840376335a98ac66ef313ff911cdf439a5b69"
 "checksum strsim 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b4d15c810519a91cf877e7e36e63fe068815c678181439f2f29e2562147c3694"
 "checksum syn 0.11.11 (registry+https://github.com/rust-lang/crates.io-index)" = "d3b891b9015c88c576343b9b3e41c2c11a51c219ef067b264bd9c8aa9b441dad"

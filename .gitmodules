@@ -1,3 +1,0 @@
-[submodule "external/rust-shardio"]
-	path = external/rust-shardio
-	url = git@github.com:10XDev/rust-shardio.git
