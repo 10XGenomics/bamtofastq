@@ -612,6 +612,7 @@ type BGW = ThreadProxyWriter<BufWriter<GzEncoder<File>>>;
 
 struct FastqManager {
     writers: HashMap<Rg, FastqWriter>,
+    out_path: PathBuf,
 }
 
 impl FastqManager {
@@ -634,7 +635,7 @@ impl FastqManager {
             writers.insert((_samp.clone(), lane), writer);
         }
 
-        FastqManager { writers: writers }
+        FastqManager { writers: writers, out_path: out_path.to_path_buf() }
     }
 
     pub fn write(&mut self, rg: &Option<Rg>, r1: &FqRecord, r2: &FqRecord, i1: &Option<FqRecord>, i2: &Option<FqRecord>) {
@@ -941,7 +942,7 @@ fn proc_double_ended<I>(records: I, formatter: FormatBamRecords, mut fq: FastqMa
 Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>> 
 where I: Iterator<Item=result::Result<Record, ReadError>> {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
-    let tmp_file = try!(NamedTempFile::new());
+    let tmp_file = try!(NamedTempFile::new_in(&fq.out_path));
 
     let total_read_pairs = {
         // Cache for efficiently finding local read pairs
