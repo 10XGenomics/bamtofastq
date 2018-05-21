@@ -3,14 +3,7 @@
 use std::str::FromStr;
 use regex::Regex;
 use std::fmt;
-
-error_chain! {
-    errors {
-        LocusParseError {
-            description("invalid locus string")
-        }
-    }
-}
+use failure::Error;
 
 
 #[derive(PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Deserialize, Clone)]
@@ -18,12 +11,6 @@ pub struct Locus {
     pub chrom: String,
     pub start: u32,
     pub end: u32,
-}
-
-impl Locus {
-    pub fn from_string(s: &str) -> Locus {
-        FromStr::from_str(s).ok().unwrap()
-    }
 }
 
 impl fmt::Display for Locus {
@@ -44,12 +31,12 @@ fn remove_commas(s: &str) -> String {
 impl FromStr for Locus {
     type Err = Error;
 
-    fn from_str(s: &str) -> Result<Locus> {
+    fn from_str(s: &str) -> Result<Locus, Error> {
         let re = Regex::new(r"^(.*):([0-9,]+)(-|..)([0-9,]+)$").unwrap();
         let cap = re.captures(s);
 
         if cap.is_none() {
-            return Err(ErrorKind::LocusParseError.into())
+            return Err(format_err!("invalid locus string: {}", s));
         }
 
         let cap = cap.unwrap();
