@@ -2,6 +2,8 @@
 
 #[macro_use]
 extern crate serde_derive;
+extern crate serde;
+extern crate serde_bytes;
 
 extern crate docopt;
 extern crate rust_htslib;
@@ -12,7 +14,6 @@ extern crate itertools;
 extern crate regex;
 extern crate tempfile;
 extern crate tempdir;
-extern crate serde;
 
 #[macro_use]
 extern crate failure;
@@ -105,14 +106,14 @@ Usage:
   bamtofastq (-h | --help)
 
 Options:
-  --nthreads           Threads to use for reading BAM file [default: 4]
-  --locus=<locus>      Optional. Only include read pairs mapping to locus. Use chrom:start-end format.
-  --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 50000000]
-  --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
-  --lr20               Convert a BAM produced by Longranger 2.0
-  --cr11               Convert a BAM produced by Cell Ranger 1.0-1.1
-  --bx-list=L          Only include BX values listed in text file L. Requires BX-sorted and index BAM file (see Long Ranger support for details).
-  -h --help            Show this screen.
+  --nthreads=<n>        Threads to use for reading BAM file [default: 4]
+  --locus=<locus>       Optional. Only include read pairs mapping to locus. Use chrom:start-end format.
+  --reads-per-fastq=N   Number of reads per FASTQ chunk [default: 50000000]
+  --gemcode             Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
+  --lr20                Convert a BAM produced by Longranger 2.0
+  --cr11                Convert a BAM produced by Cell Ranger 1.0-1.1
+  --bx-list=L           Only include BX values listed in text file L. Requires BX-sorted and index BAM file (see Long Ranger support for details).
+  -h --help             Show this screen.
 ";
 
 
@@ -136,9 +137,9 @@ determine the Gem group.  Reads without a CB tag will get dropped.
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Args {
-    arg_nthreads: usize,
     arg_bam: String,
     arg_output_path: String,
+    flag_nthreads: usize,
     flag_locus: Option<String>,
     flag_bx_list: Option<String>,
     flag_reads_per_fastq: usize,
@@ -150,8 +151,11 @@ pub struct Args {
 /// A Fastq record ready to be written
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]
 struct FqRecord {
+    #[serde(with = "serde_bytes")]
     head: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     seq: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     qual: Vec<u8>
 }
 
@@ -166,6 +170,7 @@ enum ReadNum {
 #[derive(Debug, Serialize, Deserialize, PartialOrd, Ord, Eq, PartialEq)]
 struct SerFq {
     read_group: Option<Rg>,
+    #[serde(with = "serde_bytes")]
     header_key: Vec<u8>,
     rec: FqRecord,
     read_num: ReadNum,
@@ -177,8 +182,8 @@ struct SerFq {
 struct SerFqSort;
 
 impl SortKey<SerFq, Vec<u8>> for SerFqSort {
-    fn sort_key(t: &SerFq) -> Vec<u8> {
-        t.header_key.clone()
+    fn sort_key(t: &SerFq) -> &Vec<u8> {
+        &t.header_key
     }
 }
 
@@ -793,7 +798,7 @@ impl FastqWriter {
     fn open_gzip_writer<P: AsRef<Path>>(path: P) -> ThreadProxyWriter<BufWriter<GzEncoder<File>>> {
         let f = File::create(path).unwrap();
         let gz = GzEncoder::new(f, flate2::Compression::fast());
-        ThreadProxyWriter::new(BufWriter::new(gz), 4096)
+        ThreadProxyWriter::new(BufWriter::with_capacity(1<<22, gz), 1<<19)
     }
 }
 
@@ -859,7 +864,7 @@ Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
 
 pub fn inner<R: bam::Read>(args: Args, cache_size: usize, mut bam: R) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
 
-    bam.set_threads(args.arg_nthreads)?;
+    bam.set_threads(args.flag_nthreads)?;
 
     let formatter = {
         let header_fmt = FormatBamRecords::from_headers(&bam);
@@ -955,7 +960,7 @@ where I: Iterator<Item=Result<Record, Error>> {
         let mut rp_cache = RpCache::new(cache_size);
 
         // For chimeric read piars that are showing up in different places, we will write these to disk for later use
-        let w: ShardWriter<SerFq, Vec<u8>, SerFqSort> = ShardWriter::new(tmp_file.path(), 2048, 256, 2)?;
+        let w: ShardWriter<SerFq, Vec<u8>, SerFqSort> = ShardWriter::new(tmp_file.path(), 32, 2048, 1<<18)?;
         let mut sender = w.get_sender();
 
         // Count total R1s observed, so we can make sure we've preserved all read pairs
