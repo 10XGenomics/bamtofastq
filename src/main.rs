@@ -1,7 +1,10 @@
 // Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
 
+
 #[macro_use]
 extern crate serde_derive;
+extern crate serde;
+extern crate serde_bytes;
 
 extern crate docopt;
 extern crate rust_htslib;
@@ -12,10 +15,12 @@ extern crate itertools;
 extern crate regex;
 extern crate tempfile;
 extern crate tempdir;
-extern crate serde;
 
 #[macro_use]
 extern crate failure;
+
+#[macro_use]
+extern crate human_panic;
 
 use std::io::{Write, BufWriter};
 use std::fs::File;
@@ -105,7 +110,7 @@ Usage:
   bamtofastq (-h | --help)
 
 Options:
-  --nthreads           Threads to use for reading BAM file [default: 4]
+  --nthreads=<N>       Threads to use for reading BAM file [default: 4]
   --locus=<locus>      Optional. Only include read pairs mapping to locus. Use chrom:start-end format.
   --reads-per-fastq=N  Number of reads per FASTQ chunk [default: 50000000]
   --gemcode            Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
@@ -127,18 +132,14 @@ be made considerably simpler.
 per-Gem Group FASTQs, which is important because multi-gem-group experiments are common.  If we don't
 have RG headers, we will set up files for 20 gem groups, and use the gem-group suffix on the CB tag to
 determine the Gem group.  Reads without a CB tag will get dropped.
-
-
 */
-
-
 
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Args {
-    arg_nthreads: usize,
     arg_bam: String,
     arg_output_path: String,
+    flag_nthreads: usize,
     flag_locus: Option<String>,
     flag_bx_list: Option<String>,
     flag_reads_per_fastq: usize,
@@ -150,8 +151,11 @@ pub struct Args {
 /// A Fastq record ready to be written
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]
 struct FqRecord {
+    #[serde(with = "serde_bytes")]
     head: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     seq: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     qual: Vec<u8>
 }
 
@@ -166,6 +170,7 @@ enum ReadNum {
 #[derive(Debug, Serialize, Deserialize, PartialOrd, Ord, Eq, PartialEq)]
 struct SerFq {
     read_group: Option<Rg>,
+    #[serde(with = "serde_bytes")]
     header_key: Vec<u8>,
     rec: FqRecord,
     read_num: ReadNum,
@@ -177,8 +182,8 @@ struct SerFq {
 struct SerFqSort;
 
 impl SortKey<SerFq, Vec<u8>> for SerFqSort {
-    fn sort_key(t: &SerFq) -> Vec<u8> {
-        t.header_key.clone()
+    fn sort_key(t: &SerFq) -> &Vec<u8> {
+        &t.header_key
     }
 }
 
@@ -799,24 +804,12 @@ impl FastqWriter {
 
 
 fn main() {
+
+    setup_panic!();
+   
     if let Err(ref e) = run() {
         println!("error: {}", e);
-        println!("{}\n{}", e.cause(), e.backtrace());
-
-        //for e in e.iter().skip(1) {
-        ////    println!("caused by: {}", e);
-        //}
-
-        // The backtrace is not always generated. Try to run this example
-        // with `RUST_BACKTRACE=1`.
-        /*
-        if let Some(backtrace) = e.backtrace() {
-            println!("------------");
-            println!("If you believe this is a bug in bamtofastq, please report a bug to software@10xgenomics.com.");
-            println!("{:?}", backtrace);
-        }
-        */
-
+        println!("{}\n{}", e.as_fail(), e.backtrace());
         ::std::process::exit(1);
     }
 }
@@ -859,7 +852,7 @@ Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
 
 pub fn inner<R: bam::Read>(args: Args, cache_size: usize, mut bam: R) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
 
-    bam.set_threads(args.arg_nthreads)?;
+    bam.set_threads(args.flag_nthreads)?;
 
     let formatter = {
         let header_fmt = FormatBamRecords::from_headers(&bam);
@@ -955,7 +948,7 @@ where I: Iterator<Item=Result<Record, Error>> {
         let mut rp_cache = RpCache::new(cache_size);
 
         // For chimeric read piars that are showing up in different places, we will write these to disk for later use
-        let w: ShardWriter<SerFq, Vec<u8>, SerFqSort> = ShardWriter::new(tmp_file.path(), 2048, 256, 2)?;
+        let w: ShardWriter<SerFq, Vec<u8>, SerFqSort> = ShardWriter::new(tmp_file.path(), 32, 2048, 1<<21)?;
         let mut sender = w.get_sender();
 
         // Count total R1s observed, so we can make sure we've preserved all read pairs
@@ -1168,7 +1161,7 @@ mod tests {
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
-            arg_nthreads: 2,
+            flag_nthreads: 2,
             arg_bam: "test/lr21.bam".to_string(),
             arg_output_path: tmp_path.to_str().unwrap().to_string(),
             flag_gemcode: false,
@@ -1202,7 +1195,7 @@ mod tests {
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
-            arg_nthreads: 2,
+            flag_nthreads: 2,
             arg_bam: "test/lr20.bam".to_string(),
             arg_output_path: tmp_path.to_str().unwrap().to_string(),
             flag_gemcode: false,
@@ -1241,7 +1234,7 @@ mod tests {
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
-            arg_nthreads: 2,
+            flag_nthreads: 2,
             arg_bam: "test/cr12.bam".to_string(),
             arg_output_path: tmp_path.to_str().unwrap().to_string(),
             flag_gemcode: false,
@@ -1275,7 +1268,7 @@ mod tests {
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
-            arg_nthreads: 2,
+            flag_nthreads: 2,
             arg_bam: "test/cr12-v1.bam".to_string(),
             arg_output_path: tmp_path.to_str().unwrap().to_string(),
             flag_gemcode: false,
