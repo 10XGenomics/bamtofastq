@@ -59,23 +59,6 @@ use rpcache::RpCache;
 use bx_index::BxListIter;
 
 
-/*
-// We'll put our errors in an `errors` module, and other modules in
-// this crate will `use errors::*;` to get access to everything
-// `error_chain!` creates.
-mod errors {
-    // Create the Error, ErrorKind, ResultExt, and Result types
-    error_chain! { 
-        foreign_links {
-            Io(::std::io::Error) #[doc = "Link to a `std::error::Error` type."];
-            Bam(::rust_htslib::bam::FetchError);
-        }
-    }
-}
-
-use errors::*;
-*/
-
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 const USAGE: &'static str = "
@@ -179,7 +162,6 @@ struct SerFq {
     i1: Option<FqRecord>,
     i2: Option<FqRecord>,
 }
-
 
 struct SerFqSort;
 
