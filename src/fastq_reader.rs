@@ -44,7 +44,7 @@ pub fn open_w_gz<P: AsRef<Path>>(p: P) -> Box<Read> {
     let r = File::open(p.as_ref()).unwrap();
 
     if p.as_ref().extension().unwrap() == "gz" {
-        let gz = MultiGzDecoder::new(r).unwrap();
+        let gz = MultiGzDecoder::new(r);
         let buf_reader = BufReader::with_capacity(32*1024, gz);
         Box::new(buf_reader)
     } else {
