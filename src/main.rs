@@ -215,6 +215,7 @@ impl FormatBamRecords {
 
         let mut spec = Self::parse_spec(reader);
         let rgs = Self::parse_rgs(reader);
+        let seq_names = Self::parse_seq_names(reader);
 
         if spec.len() == 0 {
             None
@@ -226,7 +227,7 @@ impl FormatBamRecords {
                     r2_spec: spec.remove("R2").unwrap(),
                     i1_spec: spec.remove("I1").unwrap_or_else(|| Vec::new()),
                     i2_spec: spec.remove("I2").unwrap_or_else(|| Vec::new()),
-                    rename: None,
+                    rename: seq_names,
                     order: [1,3,2,4],
             })
         }
@@ -384,6 +385,25 @@ impl FormatBamRecords {
         }
 
         spec
+    }
+
+    // fn parse_spec<R: bam::Read>(reader: &R) -> HashMap<String, Vec<SpecEntry>> {
+    // fn parse_rgs<R: bam::Read>(reader: &R) -> HashMap<String, Rg> {
+    fn parse_seq_names<R: bam::Read>(reader: &R) -> Option<Vec<String>> {
+        let text = String::from_utf8(Vec::from(reader.header().as_bytes())).unwrap();
+        let re = Regex::new(r"@CO\t10x_bam_to_fastq_names:(\S+)").unwrap();
+
+        for l in text.lines() {
+            if let Some(c) = re.captures(l) {
+                let mut seq_names = Vec::new();
+                let names = c.get(1).unwrap().as_str().split(',');
+                for name in names {
+                    seq_names.push(name.to_string());
+                }
+                return Some(seq_names);
+            }
+        }
+        return None;
     }
 
     fn try_get_rg(&self, rec: &Record) -> Option<Rg> {
