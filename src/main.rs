@@ -387,8 +387,10 @@ impl FormatBamRecords {
         spec
     }
 
-    // fn parse_spec<R: bam::Read>(reader: &R) -> HashMap<String, Vec<SpecEntry>> {
-    // fn parse_rgs<R: bam::Read>(reader: &R) -> HashMap<String, Rg> {
+    // Example header line:
+    // @CO	10x_bam_to_fastq_seqnames:R1,R3,I1,R2
+    // In this case, the @CO header lines marked R1, R2, I1, I2 will
+    // be used to write reads to output files R1, R3, I1, and R2, respectively
     fn parse_seq_names<R: bam::Read>(reader: &R) -> Option<Vec<String>> {
         let text = String::from_utf8(Vec::from(reader.header().as_bytes())).unwrap();
         let re = Regex::new(r"@CO\t10x_bam_to_fastq_seqnames:(\S+)").unwrap();
