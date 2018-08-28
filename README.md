@@ -55,6 +55,12 @@ reverse-complemented if the record has the 'reverse' flag set.
 Some sequencing formats (in particular Single Cell 3') do not include generate alignment records for the R2 read, and the sequence of the R2 read 
 are encoded in tags of the R1 alignment record. This mode is activated if the R2 specification does not contain a 'SEQ:QUAL' entry.
 
+By default, sequence layout entries are expected for R1, I1, R2, and/or I2. To give the output FASTQ files different names, place a `10x_bam_to_fastq_seqnames` line in the bam header. For instance, the following line will transform the output names `(R1, I1, R2, I2)` to `(R1, R3, I1, R2)`, respectively.
+
+```
+10x_bam_to_fastq_seqnames:R1,R3,I1,R2
+```
+
 
 ### Read groups
 
