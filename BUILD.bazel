@@ -1,0 +1,14 @@
+load(
+    "@tenx_bazel_rules//rules:cargo.bzl",
+    "cargo_binary",
+)
+
+exports_files([
+    "Cargo.toml",
+    "Cargo.lock",
+])
+
+cargo_binary(
+    name = "bamtofastq",
+    visibility = ["//visibility:public"],
+)
