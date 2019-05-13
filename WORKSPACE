@@ -10,7 +10,7 @@ load(
 # --override_repository=tenx_bazel_rules=/path/to/repository
 git_repository(
     name = "tenx_bazel_rules",
-    commit = "c9eb70d1dd6166dfe3273b8abb30ee92edf379d3",
+    commit = "69af1bc334dc631d16c928af61ef0e27d8157d91",
     remote = "https://github.com/10XDev/tenx_bazel_rules.git",
 )
 
