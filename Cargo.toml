@@ -23,4 +23,5 @@ failure = "*"
 human-panic = "1"
 
 [profile.release]
-debug = true
+debug = 1
+lto = true

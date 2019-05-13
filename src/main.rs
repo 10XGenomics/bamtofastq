@@ -1,5 +1,9 @@
 // Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
 
+use std::alloc::System;
+
+#[global_allocator]
+static A: System = System;
 
 #[macro_use]
 extern crate serde_derive;
