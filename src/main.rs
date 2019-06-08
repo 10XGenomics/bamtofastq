@@ -517,24 +517,34 @@ impl FormatBamRecords {
                 // Data from a tag
                 &SpecEntry::Tags(ref read_tag, ref qv_tag) => {  
 
-                    let rx = rec.aux(read_tag.as_bytes());
-                    if rx.is_none() && last_item {
-                        continue;
-                    } else if rx.is_none() {
-                        panic!(format!("Invalid BAM record: read: {:?} is missing tag: {:?}", std::str::from_utf8(rec.qname()).unwrap(), read_tag));
-                    } else {
-                        let rx = rx.unwrap().string();
-                        r.extend_from_slice(rx);
+                    match rec.aux(read_tag.as_bytes()) {
+                        Some(Aux::String(s)) => r.extend_from_slice(s),
+                        // old BAM files have single-char strings as Char
+                        Some(Aux::Char(c)) => r.push(c),
+                        None => {
+                            if last_item { continue; }
+                             panic!(format!("Invalid BAM record: read: {:?} is missing tag: {:?}", std::str::from_utf8(rec.qname()).unwrap(), read_tag));
+                        },
+                        Some(tag_val) => {
+                            let s = format!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}", std::str::from_utf8(rec.qname()).unwrap(), read_tag, tag_val);
+                            println!("{}", s);
+                            panic!(s);
+                        },
                     }
 
-                    let qx = rec.aux(qv_tag.as_bytes());
-                    if qx.is_none() && last_item {
-                        continue;
-                    } else if qx.is_none() {
-                        panic!(format!("read: {:?} missing: {:?}", rec.qname(), qv_tag));
-                    } else {
-                        let qx = qx.unwrap().string();
-                        q.extend_from_slice(qx);   
+                    match rec.aux(qv_tag.as_bytes()) {
+                        Some(Aux::String(s)) => q.extend_from_slice(s),
+                        // old BAM files have single-char strings as Char
+                        Some(Aux::Char(c)) => q.push(c),
+                        None => {
+                            if last_item { continue; }
+                             panic!(format!("Invalid BAM record: read: {:?} is missing tag: {:?}", std::str::from_utf8(rec.qname()).unwrap(), read_tag));
+                        },
+                        Some(tag_val) => {
+                            let s = format!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}", std::str::from_utf8(rec.qname()).unwrap(), qv_tag, tag_val);
+                            println!("{}", s);
+                            panic!(s);
+                        },
                     }
                 },
 
