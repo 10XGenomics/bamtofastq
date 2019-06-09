@@ -1,10 +1,9 @@
 // Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
 
-use std::str::FromStr;
+use failure::Error;
 use regex::Regex;
 use std::fmt;
-use failure::Error;
-
+use std::str::FromStr;
 
 #[derive(PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Deserialize, Clone)]
 pub struct Locus {
@@ -15,18 +14,14 @@ pub struct Locus {
 
 impl fmt::Display for Locus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,"{}:{}-{}", self.chrom, self.start, self.end)
+        write!(f, "{}:{}-{}", self.chrom, self.start, self.end)
     }
 }
-
-
-
 
 fn remove_commas(s: &str) -> String {
     let ss = s.to_string();
     ss.replace(",", "")
 }
-
 
 impl FromStr for Locus {
     type Err = Error;
