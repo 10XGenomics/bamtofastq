@@ -13,7 +13,7 @@ exports_files(
 
 cargo_binary(
     name = "bamtofastq",
-    cargo_deps = "@bamtofastq_cargo_dependencies",
     srcs = glob(["src/**"]),
+    cargo_deps = "@bamtofastq_cargo_dependencies",
     visibility = ["//visibility:public"],
 )
