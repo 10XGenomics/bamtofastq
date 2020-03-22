@@ -1,56 +1,32 @@
 // Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
 
-use std::alloc::System;
 
-#[global_allocator]
-static A: System = System;
-
-#[macro_use]
-extern crate serde_derive;
-extern crate serde;
-extern crate serde_bytes;
-
-extern crate docopt;
-extern crate rust_htslib;
-extern crate flate2;
-extern crate shardio;
-extern crate bincode;
-extern crate itertools;
-extern crate regex;
-extern crate tempfile;
-extern crate tempdir;
-
-#[macro_use]
-extern crate failure;
-
-#[macro_use]
-extern crate human_panic;
 
 use std::io::{Write, BufWriter};
 use std::fs::File;
 use std::fs::create_dir;
 use std::path::{PathBuf, Path};
 use std::str::FromStr;
-
+use std::borrow::Cow;
 use std::collections::HashMap;
 
-use tempfile::NamedTempFile;
 use itertools::Itertools;
-
+use tempfile::NamedTempFile;
+use serde::{Serialize, Deserialize};
 use flate2::write::GzEncoder;
+use regex::Regex;
+use docopt::Docopt;
+use failure::{Error, ResultExt, format_err};
+use human_panic::setup_panic;
 
-use rust_htslib::bam::{self, Read, ReadError};
+use rust_htslib::bam::{self, Read};
 use rust_htslib::bam::record::{Aux, Record};
 
 use shardio::{ShardWriter, ShardReader};
 use shardio::SortKey;
 use shardio::helper::ThreadProxyWriter;
 
-use regex::Regex;
-use docopt::Docopt;
 
-use failure::Error;
-use failure::ResultExt;
 
 mod locus;
 mod rpcache;
@@ -169,9 +145,11 @@ struct SerFq {
 
 struct SerFqSort;
 
-impl SortKey<SerFq, Vec<u8>> for SerFqSort {
-    fn sort_key(t: &SerFq) -> &Vec<u8> {
-        &t.header_key
+impl SortKey<SerFq> for SerFqSort {
+    type Key = Vec<u8>;
+
+    fn sort_key(t: &SerFq) -> Cow<Vec<u8>> {
+        Cow::Borrowed(&t.header_key)
     }
 }
 
@@ -469,16 +447,17 @@ impl FormatBamRecords {
     }
 
     /// Convert a BAM record to a Fq record, for internal caching
-    pub fn bam_rec_to_ser(&self, rec: &Record) -> SerFq {
-        match (rec.is_first_in_template(), rec.is_last_in_template()) {
+    pub fn bam_rec_to_ser(&self, rec: &Record) -> Result<SerFq, Error> {
+        
+        Ok(match (rec.is_first_in_template(), rec.is_last_in_template()) {
             (true, false) => {
                 SerFq {
                     header_key: rec.qname().to_vec(),
                     read_group: self.find_rg(rec),
                     read_num: ReadNum::R1,
                     rec: self.bam_rec_to_fq(rec, &self.r1_spec, self.order[0]).unwrap(),
-                    i1: if self.i1_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2]).unwrap()) }  else { None },
-                    i2: if self.i2_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3]).unwrap()) }  else { None },
+                    i1: if self.i1_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2])?) }  else { None },
+                    i2: if self.i2_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3])?) }  else { None },
                     
                 }
             },
@@ -488,12 +467,34 @@ impl FormatBamRecords {
                     read_group: self.find_rg(rec),
                     read_num: ReadNum::R2,
                     rec: self.bam_rec_to_fq(rec, &self.r2_spec, self.order[1]).unwrap(),
-                    i1: if self.i1_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2]).unwrap()) }  else { None },
-                    i2: if self.i2_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3]).unwrap()) }  else { None },
+                    i1: if self.i1_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2])?) }  else { None },
+                    i2: if self.i2_spec.len() > 0 { Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3])?) }  else { None },
                 }
             },
-            _ => panic!("Not a valid read pair"),
+            _ => {
+                let e= format_err!("Not a valid read pair: {}, {}", rec.is_first_in_template(), rec.is_last_in_template());
+                return Err(e);
+            },
+        })
+    }
+
+    fn fetch_tag(rec: &Record, tag: &str, last_tag: bool, dest: &mut Vec<u8>) -> Result<(), Error> {
+        match rec.aux(tag.as_bytes()) {
+            Some(Aux::String(s)) => dest.extend_from_slice(s),
+            // old BAM files have single-char strings as Char
+            Some(Aux::Char(c)) => dest.push(c),
+            None => {
+                if last_tag { return Ok(()); }
+                let e = format_err!("BAM record missing tag: {:?} on read {:?}. Has the BAM file been edited?", tag, std::str::from_utf8(rec.qname()).unwrap());
+                return Err(e);
+            },
+            Some(tag_val) => {
+                let e = format_err!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}. Has the BAM file been edited?", std::str::from_utf8(rec.qname()).unwrap(), tag, tag_val);
+                return Err(e);
+            },
         }
+
+        Ok(())
     }
 
     /// Convert a BAM record to Fq record ready to be written
@@ -505,8 +506,8 @@ impl FormatBamRecords {
         head.extend(head_suffix.as_bytes());
 
         // Reconstitute read and QVs
-        let mut r = Vec::new();
-        let mut q = Vec::new();
+        let mut read = Vec::new();
+        let mut qv = Vec::new();
 
         for (idx, item) in spec.into_iter().enumerate() {
 
@@ -516,43 +517,15 @@ impl FormatBamRecords {
             match item {
                 // Data from a tag
                 &SpecEntry::Tags(ref read_tag, ref qv_tag) => {  
-
-                    match rec.aux(read_tag.as_bytes()) {
-                        Some(Aux::String(s)) => r.extend_from_slice(s),
-                        // old BAM files have single-char strings as Char
-                        Some(Aux::Char(c)) => r.push(c),
-                        None => {
-                            if last_item { continue; }
-                             panic!(format!("Invalid BAM record: read: {:?} is missing tag: {:?}", std::str::from_utf8(rec.qname()).unwrap(), read_tag));
-                        },
-                        Some(tag_val) => {
-                            let s = format!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}", std::str::from_utf8(rec.qname()).unwrap(), read_tag, tag_val);
-                            println!("{}", s);
-                            panic!(s);
-                        },
-                    }
-
-                    match rec.aux(qv_tag.as_bytes()) {
-                        Some(Aux::String(s)) => q.extend_from_slice(s),
-                        // old BAM files have single-char strings as Char
-                        Some(Aux::Char(c)) => q.push(c),
-                        None => {
-                            if last_item { continue; }
-                             panic!(format!("Invalid BAM record: read: {:?} is missing tag: {:?}", std::str::from_utf8(rec.qname()).unwrap(), read_tag));
-                        },
-                        Some(tag_val) => {
-                            let s = format!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}", std::str::from_utf8(rec.qname()).unwrap(), qv_tag, tag_val);
-                            println!("{}", s);
-                            panic!(s);
-                        },
-                    }
+                    Self::fetch_tag(rec, &read_tag, last_item, &mut read)?;
+                    Self::fetch_tag(rec, &qv_tag, last_item, &mut qv)?;
                 },
 
                 // Just hardcode some Ns -- for cases where we didn't retain the required data
                 &SpecEntry::Ns(len) => {
                     for _ in 0 .. len {
-                        r.push(b'N');
-                        q.push(b'J');
+                        read.push(b'N');
+                        qv.push(b'J');
                     }
                 }
 
@@ -570,16 +543,16 @@ impl FormatBamRecords {
                         qual.reverse();
                     }
 
-                    r.extend(seq);
-                    q.extend(qual);
+                    read.extend(seq);
+                    qv.extend(qual);
                 }
             }
         }
 
         let fq_rec = FqRecord {
                 head: head.clone(),
-                seq: r,
-                qual: q,
+                seq: read,
+                qual: qv,
         };
 
         Ok(fq_rec)
@@ -587,17 +560,17 @@ impl FormatBamRecords {
 
     pub fn format_read_pair(&self, r1_rec: &Record, r2_rec: &Record) -> 
     Result<(Option<Rg>, FqRecord, FqRecord, Option<FqRecord>, Option<FqRecord>), Error> {
-        let r1 = self.bam_rec_to_fq(r1_rec, &self.r1_spec, self.order[0]).unwrap();
-        let r2 = self.bam_rec_to_fq(r2_rec, &self.r2_spec, self.order[1]).unwrap();
+        let r1 = self.bam_rec_to_fq(r1_rec, &self.r1_spec, self.order[0])?;
+        let r2 = self.bam_rec_to_fq(r2_rec, &self.r2_spec, self.order[1])?;
 
         let i1 = if self.i1_spec.len() > 0 {
-             Some(self.bam_rec_to_fq(r1_rec, &self.i1_spec, self.order[2]).unwrap())
+             Some(self.bam_rec_to_fq(r1_rec, &self.i1_spec, self.order[2])?)
         } else {
             None
         };
 
         let i2 = if self.i2_spec.len() > 0 {
-             Some(self.bam_rec_to_fq(r1_rec, &self.i2_spec, self.order[3]).unwrap())
+             Some(self.bam_rec_to_fq(r1_rec, &self.i2_spec, self.order[3])?)
         } else {
             None
         };
@@ -609,17 +582,17 @@ impl FormatBamRecords {
 
     pub fn format_read(&self, rec: &Record) -> 
     Result<(Option<Rg>, FqRecord, FqRecord, Option<FqRecord>, Option<FqRecord>), Error> {
-        let r1 = self.bam_rec_to_fq(rec, &self.r1_spec, self.order[0]).unwrap();
-        let r2 = self.bam_rec_to_fq(rec, &self.r2_spec, self.order[1]).unwrap();
+        let r1 = self.bam_rec_to_fq(rec, &self.r1_spec, self.order[0])?;
+        let r2 = self.bam_rec_to_fq(rec, &self.r2_spec, self.order[1])?;
 
         let i1 = if self.i1_spec.len() > 0 {
-             Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2]).unwrap())
+             Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2])?)
         } else {
             None
         };
 
         let i2 = if self.i2_spec.len() > 0 {
-             Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3]).unwrap())
+             Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3])?)
         } else {
             None
         };
@@ -756,51 +729,60 @@ impl FastqWriter {
         }
     }
 
-    pub fn write_rec(w: &mut BGW, rec: &FqRecord)  {
-        w.write(b"@").unwrap();
-        w.write(&rec.head).unwrap();
-        w.write(b"\n").unwrap();
+    pub fn write_rec(w: &mut BGW, rec: &FqRecord) -> Result<(), Error> {
+        w.write(b"@")?;
+        w.write(&rec.head)?;
+        w.write(b"\n")?;
 
-        w.write(&rec.seq).unwrap();
-        w.write(b"\n+\n").unwrap();
-        w.write(&rec.qual).unwrap();
-        w.write(b"\n").unwrap();
+        w.write(&rec.seq)?;
+        w.write(b"\n+\n")?;
+        w.write(&rec.qual)?;
+        w.write(b"\n")?;
+        Ok(())
     }
 
-    pub fn try_write_rec(w: &mut Option<BGW>, rec: &Option<FqRecord>) {
-        match w {
-            &mut Some(ref mut w) => match rec { &Some(ref r) => FastqWriter::write_rec(w, r), &None => panic!("setup error") },
-            &mut None => ()
-        }
+    pub fn try_write_rec(w: &mut Option<BGW>, rec: &Option<FqRecord>) -> Result<(), Error> {
+        if let Some(ref mut w) = w {
+            if let Some(r) = rec {
+                FastqWriter::write_rec(w, r)?;
+            } else {
+                panic!("setup error");
+            }
+        };
+
+        Ok(())
     }
 
-    pub fn try_write_rec2(w: &mut Option<BGW>, rec: &FqRecord) {
-        match w {
-            &mut Some(ref mut w) => FastqWriter::write_rec(w, rec),
-            &mut None => ()
-        }
+    pub fn try_write_rec2(w: &mut Option<BGW>, rec: &FqRecord) -> Result<(), Error> {
+        if let Some(ref mut w) = w {
+            FastqWriter::write_rec(w, rec)?;
+        };
+
+        Ok(())
     }
 
     /// Write a set of fastq records
-    pub fn write(&mut self, r1: &FqRecord, r2: &FqRecord, i1: &Option<FqRecord>, i2: &Option<FqRecord>) {
+    pub fn write(&mut self, r1: &FqRecord, r2: &FqRecord, i1: &Option<FqRecord>, i2: &Option<FqRecord>) -> Result<(), Error> {
 
         if self.total_written == 0 {
             // Create the output dir if needed:
             let _ = create_dir(&self.out_path);
 
-            self.cycle_writers()
+            self.cycle_writers();
         }
 
-        FastqWriter::try_write_rec2(&mut self.r1, r1);
-        FastqWriter::try_write_rec2(&mut self.r2, r2);
-        FastqWriter::try_write_rec(&mut self.i1, i1);
-        FastqWriter::try_write_rec(&mut self.i2, i2);
+        FastqWriter::try_write_rec2(&mut self.r1, r1)?;
+        FastqWriter::try_write_rec2(&mut self.r2, r2)?;
+        FastqWriter::try_write_rec(&mut self.i1, i1)?;
+        FastqWriter::try_write_rec(&mut self.i2, i2)?;
         self.total_written += 1;
         self.chunk_written += 1;
 
         if self.chunk_written >= self.reads_per_fastq {
             self.cycle_writers()
         }
+
+        Ok(())
     }
 
     /// Open up a fresh output chunk
@@ -828,7 +810,9 @@ fn main() {
     setup_panic!();
    
     if let Err(ref e) = run() {
-        println!("error: {}", e);
+        println!("bamtofastqerror: {}\n\n", e);
+        println!("see below for more details:");
+        println!("==========================");
         println!("{}\n{}", e.as_fail(), e.backtrace());
         ::std::process::exit(1);
     }
@@ -941,41 +925,46 @@ pub fn inner<R: bam::Read>(args: Args, cache_size: usize, mut bam: R) -> Result<
         } else {
 
             // Standard pos-sorted case
-            let recs_convert_err = bam.records().map(|x| x.map_err(|e| e.into()));
-            proc_double_ended(recs_convert_err, formatter, fq, cache_size, args.flag_locus.is_some())
+            //let recs_convert_err = bam.records().map(|x| x.map_err(|e| e.into()));
+            proc_double_ended(bam.records(), formatter, fq, cache_size, args.flag_locus.is_some())
         }
     } else {
         if args.flag_bx_list.is_some() {
             // BX-sorted case: get a selected set of BXs
-            let bxi = try!(bx_index::BxIndex::new(args.arg_bam));
-            let bx_iter = try!(BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam));
+            let bxi = bx_index::BxIndex::new(args.arg_bam)?;
+            let bx_iter = BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam)?;
             proc_double_ended(bx_iter, formatter, fq, cache_size, false)
         } else {
+            println!("entry");
             proc_single_ended(bam.records(), formatter, fq)
         }
     } 
 }
 
 
-fn proc_double_ended<I>(records: I, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize, restricted_locus: bool) -> 
-Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> 
-where I: Iterator<Item=Result<Record, Error>> {
+fn proc_double_ended<I, E>(records: I, formatter: FormatBamRecords, mut fq: FastqManager, cache_size: usize, restricted_locus: bool) -> 
+Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error>
+where 
+    I: Iterator<Item=Result<Record, E>>,
+    E: Send + Sync,
+    Result<Record, E>: ResultExt<Record, E>,
+ {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
-    let tmp_file = try!(NamedTempFile::new_in(&fq.out_path));
+    let tmp_file = NamedTempFile::new_in(&fq.out_path)?;
 
     let total_read_pairs = {
         // Cache for efficiently finding local read pairs
         let mut rp_cache = RpCache::new(cache_size);
 
         // For chimeric read piars that are showing up in different places, we will write these to disk for later use
-        let w: ShardWriter<SerFq, Vec<u8>, SerFqSort> = ShardWriter::new(tmp_file.path(), 32, 2048, 1<<21)?;
+        let w: ShardWriter<SerFq, SerFqSort> = ShardWriter::new(tmp_file.path(), 32, 2048, 1<<21)?;
         let mut sender = w.get_sender();
 
         // Count total R1s observed, so we can make sure we've preserved all read pairs
         let mut total_read_pairs = 0;
 
         for _rec in records {
-            let rec = _rec.unwrap();
+            let rec = _rec.context("IO Error reading BAM file. You BAM file may be corrupted.")?;
 
             if rec.is_secondary() || rec.is_supplementary() {
                 continue;
@@ -1000,28 +989,30 @@ where I: Iterator<Item=Result<Record, Error>> {
             // If cache gets too big, clear out stragglers & serialize for later
             if rp_cache.len() > cache_size {
                 for orphan in rp_cache.clear_orphans(tid, pos) {
-                    let ser = formatter.bam_rec_to_ser(&orphan);
-                    sender.send(ser);
+                    let ser = formatter.bam_rec_to_ser(&orphan)?;
+                    sender.send(ser)?;
                 }
             }
         }
 
         for (_, orphan) in rp_cache.cache.drain() {
-            let ser = formatter.bam_rec_to_ser(&orphan);
-            sender.send(ser);
+            let ser = formatter.bam_rec_to_ser(&orphan)?;
+            sender.send(ser)?;
         }
 
         total_read_pairs
     };
 
     // Read back the shards, sort to find pairs, and write.
-    let reader = ShardReader::<SerFq, Vec<u8>, SerFqSort>::open(tmp_file.path());
+    let reader = ShardReader::<SerFq, SerFqSort>::open(tmp_file.path())?;
 
     let mut ncached = 0;
-    for (_, items) in &reader.iter().group_by(|x| x.header_key.clone()) {
+    for (_, items) in &reader.iter()?.group_by(|x| x.as_ref().ok().map(|x| x.header_key.clone())) {
 
         // write out items
-        let mut item_vec: Vec<_> = items.collect();
+        let _item_vec: Result<Vec<SerFq>, _> = items.collect();
+        let mut item_vec = _item_vec?;
+
 
         // We're missing a read in the pair, and we would expect it.
         if item_vec.len() != 2 && !restricted_locus {
@@ -1045,16 +1036,19 @@ where I: Iterator<Item=Result<Record, Error>> {
     Ok(fq.paths())
 }
 
-fn proc_single_ended<I>(records: I, formatter: FormatBamRecords, mut fq: FastqManager) ->
+fn proc_single_ended<I, E>(records: I, formatter: FormatBamRecords, mut fq: FastqManager) ->
   Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> 
-  where I: Iterator<Item=Result<Record, ReadError>> {
+where 
+    I: Iterator<Item=Result<Record, E>>,
+    Result<Record, E>: ResultExt<Record, E>,
+{
 
     let total_reads = {
         // Count total R1s observed, so we can make sure we've preserved all read pairs
         let mut total_reads = 0;
 
         for _rec in records {
-            let rec = _rec.unwrap();
+            let rec = _rec.context("IO Error reading BAM file. Your BAM file may be corrupt")?;
 
             if rec.is_secondary() || rec.is_supplementary() {
                 continue;
@@ -1062,7 +1056,7 @@ fn proc_single_ended<I>(records: I, formatter: FormatBamRecords, mut fq: FastqMa
 
             total_reads += 1;
 
-            let (rg, fq1, fq2, fq_i1, fq_i2) = formatter.format_read(&rec).unwrap();
+            let (rg, fq1, fq2, fq_i1, fq_i2) = formatter.format_read(&rec)?;
             fq.write(&rg, &fq1, &fq2, &fq_i1, &fq_i2);
         }
 
@@ -1246,8 +1240,6 @@ mod tests {
     }
 
 
-
-
     #[test]
     fn test_cr12() {
         let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
@@ -1280,6 +1272,50 @@ mod tests {
         }
         
         subset_compare_read_sets(orig_reads, output_reads);
+    }
+
+    #[test]
+    fn bad_bam() {
+        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tmp_path = tempdir.path().join("outs");
+
+        let args = Args {
+            flag_nthreads: 2,
+            arg_bam: "test/bad.bam".to_string(),
+            arg_output_path: tmp_path.to_str().unwrap().to_string(),
+            flag_gemcode: false,
+            flag_lr20: false, 
+            flag_cr11: false,
+            flag_reads_per_fastq: 100000,
+            flag_locus: None,
+            flag_bx_list: None,
+        };
+
+        let res = super::go(args, Some(2));
+        
+        println!("res: {:?}", res);
+    }
+
+    #[test]
+    fn wrong_header() {
+        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tmp_path = tempdir.path().join("outs");
+
+        let args = Args {
+            flag_nthreads: 2,
+            arg_bam: "test/wrong_header.bam".to_string(),
+            arg_output_path: tmp_path.to_str().unwrap().to_string(),
+            flag_gemcode: false,
+            flag_lr20: false, 
+            flag_cr11: false,
+            flag_reads_per_fastq: 100000,
+            flag_locus: None,
+            flag_bx_list: None,
+        };
+
+        let res = super::go(args, Some(2));
+        
+        println!("res: {:?}", res);
     }
 
     #[test]

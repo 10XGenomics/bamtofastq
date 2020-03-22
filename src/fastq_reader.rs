@@ -35,12 +35,12 @@ pub fn get_fastq_item<R: BufRead>(lines: &mut Lines<R>) -> Option<FqRec>{
 }
 
 pub struct FastqPairIter {
-    r1: Lines<BufReader<Box<Read>>>,
-    r2: Lines<BufReader<Box<Read>>>,
-    si: Option<Lines<BufReader<Box<Read>>>>,
+    r1: Lines<BufReader<Box<dyn Read>>>,
+    r2: Lines<BufReader<Box<dyn Read>>>,
+    si: Option<Lines<BufReader<Box<dyn Read>>>>,
 }
 
-pub fn open_w_gz<P: AsRef<Path>>(p: P) -> Box<Read> {
+pub fn open_w_gz<P: AsRef<Path>>(p: P) -> Box<dyn Read> {
     let r = File::open(p.as_ref()).unwrap();
 
     if p.as_ref().extension().unwrap() == "gz" {
@@ -54,7 +54,7 @@ pub fn open_w_gz<P: AsRef<Path>>(p: P) -> Box<Read> {
 }
 
 
-pub fn open_fastq_pair_iter<P: AsRef<Path>>(r1: P, r2: P, si: Option<P>) -> Box<Iterator<Item=RawReadSet>> {
+pub fn open_fastq_pair_iter<P: AsRef<Path>>(r1: P, r2: P, si: Option<P>) -> Box<dyn Iterator<Item=RawReadSet>> {
     Box::new(
     FastqPairIter::init(
         open_w_gz(r1),
@@ -64,7 +64,7 @@ pub fn open_fastq_pair_iter<P: AsRef<Path>>(r1: P, r2: P, si: Option<P>) -> Box<
 }
 
 impl FastqPairIter {
-    pub fn init(r1: Box<Read>, r2: Box<Read>, si: Option<Box<Read>>) -> FastqPairIter {
+    pub fn init(r1: Box<dyn Read>, r2: Box<dyn Read>, si: Option<Box<dyn Read>>) -> FastqPairIter {
 
         FastqPairIter {
             r1: BufReader::new(r1).lines(),
@@ -92,11 +92,11 @@ impl Iterator for FastqPairIter {
 }
 
 pub struct InterleavedFastqPairIter {
-    ra: Lines<BufReader<Box<Read>>>,
-    si: Option<Lines<BufReader<Box<Read>>>>,
+    ra: Lines<BufReader<Box<dyn Read>>>,
+    si: Option<Lines<BufReader<Box<dyn Read>>>>,
 }
 
-pub fn open_interleaved_fastq_pair_iter<P: AsRef<Path>>(ra: P, si: Option<P>) -> Box<Iterator<Item=RawReadSet>> {
+pub fn open_interleaved_fastq_pair_iter<P: AsRef<Path>>(ra: P, si: Option<P>) -> Box<dyn Iterator<Item=RawReadSet>> {
     Box::new(
     InterleavedFastqPairIter::init(
         open_w_gz(ra),
@@ -106,7 +106,7 @@ pub fn open_interleaved_fastq_pair_iter<P: AsRef<Path>>(ra: P, si: Option<P>) ->
 
 impl InterleavedFastqPairIter {
 
-    pub fn init(ra: Box<Read>, si: Option<Box<Read>>) -> InterleavedFastqPairIter {
+    pub fn init(ra: Box<dyn Read>, si: Option<Box<dyn Read>>) -> InterleavedFastqPairIter {
         InterleavedFastqPairIter {
             ra: BufReader::new(ra).lines(),
             si: si.map(|x| BufReader::new(x).lines()),

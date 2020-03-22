@@ -37,7 +37,7 @@ impl RpCache {
         }
     }
 
-    pub fn clear_orphans(&mut self, current_tid: i32, current_pos: i32) -> Vec<Record> {
+    pub fn clear_orphans(&mut self, current_tid: i32, current_pos: i64) -> Vec<Record> {
         let mut orphans = Vec::new();
 
         let mut dist = 5000;

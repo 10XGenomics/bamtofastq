@@ -2,11 +2,13 @@
 
 extern crate csv;
 
+use std::result;
 use std::path::{Path, PathBuf};
 use std::fs::File;
+
+use serde::Deserialize;
 use rust_htslib::bam::Read;
 use rust_htslib::bam::record::{Aux, Record};
-use std::result;
 
 use failure::ResultExt;
 use failure::Error;
