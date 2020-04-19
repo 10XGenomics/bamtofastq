@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 docopt = "*"
-rust-htslib = ">=0.27" 
+rust-htslib = ">=0.30" 
 flate2 = { version = "1.0", features = ["zlib"], default-features = false }
 shardio = { git = "https://github.com/10XGenomics/rust-shardio.git" }
 bincode = "1"
