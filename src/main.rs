@@ -1004,7 +1004,7 @@ pub fn go(
                 "Requested chromosome not present: {}",
                 loc.chrom
             ))?;
-            bam.fetch(tid, loc.start, loc.end)?;
+            bam.fetch(tid, loc.start.into(), loc.end.into())?;
             inner(args.clone(), cache_size, bam)
         }
         None => {
