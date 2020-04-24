@@ -843,7 +843,7 @@ Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
             let loc = locus::Locus::from_str(locus).context("Invalid locus argument. Please use format: 'chr1:123-456'")?;
             let mut bam = bam::IndexedReader::from_path(&args.arg_bam).context("Error opening BAM file. The BAM file must be indexed when using --locus")?;
             let tid = bam.header().tid(loc.chrom.as_bytes()).ok_or(format_err!("Requested chromosome not present: {}", loc.chrom))?;
-            bam.fetch(tid, loc.start, loc.end)?;
+            bam.fetch(tid, loc.start.into(), loc.end.into())?;
             inner(args.clone(), cache_size, bam)
         },
         None => {
