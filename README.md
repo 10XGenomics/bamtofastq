@@ -4,8 +4,11 @@ Tool for converting 10x BAMs produced by Cell Ranger or Long Ranger back to FAST
 The FASTQ files emitted by the tool should contain the same set of sequences that were input to the original pipeline run, although the order will
 not be preserved.  The FASTQs will be emitted into a directory structure that is compatible with the directories created by the 'mkfastq' tool.
 
+## Download
+Download the latest release binaries for Linux or Mac from [the releases page](https://github.com/10XGenomics/bamtofastq/releases)
+
 ## Building
-bamtofastq is standard Rust executable project, that works with stable Rust >=1.13.  Install Rust through the standard channels, then type `cargo build --release`.
+bamtofastq is standard Rust executable project, that works with stable Rust >=1.30.  Install Rust through the standard channels, then type `cargo build --release`.
 The executable will appear at `target/release/bamtofastq`.  As usual it's important to use a release build to get good performance.
 
 ## Running
