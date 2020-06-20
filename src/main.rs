@@ -1,4 +1,4 @@
-// Copyright (c) 2017 10x Genomics, Inc. All rights reserved.
+// Copyright (c) 2020 10x Genomics, Inc. All rights reserved.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
