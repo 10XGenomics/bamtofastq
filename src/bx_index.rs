@@ -29,7 +29,7 @@ impl BxIndex {
 
         let f = File::open(bxi_fn.clone()).
             context(
-                format!("Couldn't find BX index: '{:?}'. You must sort you BAM file with 'samtools sort -t BX' and index with 'bxindex'", bxi_fn)
+                format!("Couldn't find BX index: '{:?}'. You must sort your BAM file with 'samtools sort -t BX' and index with 'bxindex'", bxi_fn)
             )?;
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(false)
