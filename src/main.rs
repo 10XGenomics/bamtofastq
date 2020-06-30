@@ -72,8 +72,8 @@ Options:
   --nthreads=<n>        Threads to use for reading BAM file [default: 4]
   --locus=<locus>       Optional. Only include read pairs mapping to locus. Use chrom:start-end format.
   --reads-per-fastq=N   Number of reads per FASTQ chunk [default: 50000000]
-  --gemcode             Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
-  --lr20                Convert a BAM produced by Longranger 2.0
+  --gemcode             Convert a BAM produced from GemCode data (Long Ranger 1.0 - 1.3)
+  --lr20                Convert a BAM produced by Long Ranger 2.0
   --cr11                Convert a BAM produced by Cell Ranger 1.0-1.1
   --bx-list=L           Only include BX values listed in text file L. Requires BX-sorted and index BAM file (see Long Ranger support for details).
   -h --help             Show this screen.
