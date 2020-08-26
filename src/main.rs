@@ -965,7 +965,6 @@ impl FastqWriter {
 }
 
 fn main() {
-
     // initialize human_panic
     setup_panic!();
 
@@ -976,7 +975,6 @@ fn main() {
 
     let traceback = args.flag_traceback;
     let res = go(args, None);
-
 
     if let Err(ref e) = res {
         println!("bamtofastqerror: {}\n", e);
@@ -995,12 +993,11 @@ pub fn go(
     args: Args,
     cache_size: Option<usize>,
 ) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
-
     let cache_size = cache_size.unwrap_or(500000);
 
     let path = std::path::PathBuf::from(args.arg_bam.clone());
     if !path.exists() {
-        return Err(format_err!("BAM file doesn't exist: {:?}", path))
+        return Err(format_err!("BAM file doesn't exist: {:?}", path));
     }
 
     match args.flag_locus {
@@ -1215,7 +1212,7 @@ where
         if item_vec.len() != 2 && !restricted_locus {
             let header = std::str::from_utf8(&item_vec[0].rec.head).unwrap();
             let msg = format_err!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
-            return Err(msg)
+            return Err(msg);
         }
 
         // We're missing a read in the pair, and we would expect it.
