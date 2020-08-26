@@ -76,6 +76,7 @@ Options:
   --lr20                Convert a BAM produced by Longranger 2.0
   --cr11                Convert a BAM produced by Cell Ranger 1.0-1.1
   --bx-list=L           Only include BX values listed in text file L. Requires BX-sorted and index BAM file (see Long Ranger support for details).
+  --traceback           Print full traceback if an error occurs.
   -h --help             Show this screen.
 
 ";
@@ -104,6 +105,7 @@ pub struct Args {
     flag_gemcode: bool,
     flag_lr20: bool,
     flag_cr11: bool,
+    flag_traceback: bool,
 }
 
 /// A Fastq record ready to be written
@@ -963,35 +965,43 @@ impl FastqWriter {
 }
 
 fn main() {
+
+    // initialize human_panic
     setup_panic!();
 
-    if let Err(ref e) = run() {
-        println!("bamtofastqerror: {}\n\n", e);
-        println!("see below for more details:");
-        println!("==========================");
-        println!("{}\n{}", e.as_fail(), e.backtrace());
-        ::std::process::exit(1);
-    }
-}
-
-// Most functions will return the `Result` type, imported from the
-// `errors` module. It is a typedef of the standard `Result` type
-// for which the error type is always our own `Error`.
-fn run() -> Result<(), Error> {
     println!("bamtofastq v{}", VERSION);
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.deserialize())
         .unwrap_or_else(|e| e.exit());
 
-    let _ = go(args, None)?;
-    Ok(())
+    let traceback = args.flag_traceback;
+    let res = go(args, None);
+
+
+    if let Err(ref e) = res {
+        println!("bamtofastqerror: {}\n", e);
+        println!("Please contact patrick@10xgenomics.com for assistance. Please re-run with --traceback and include stack trace with an error report");
+
+        if traceback {
+            println!("see below for more details:");
+            println!("==========================");
+            println!("{}\n{}", e.as_fail(), e.backtrace());
+        }
+        ::std::process::exit(1);
+    }
 }
 
 pub fn go(
     args: Args,
     cache_size: Option<usize>,
 ) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
+
     let cache_size = cache_size.unwrap_or(500000);
+
+    let path = std::path::PathBuf::from(args.arg_bam.clone());
+    if !path.exists() {
+        return Err(format_err!("BAM file doesn't exist: {:?}", path))
+    }
 
     match args.flag_locus {
         Some(ref locus) => {
@@ -1203,7 +1213,9 @@ where
 
         // We're missing a read in the pair, and we would expect it.
         if item_vec.len() != 2 && !restricted_locus {
-            panic!("didn't get both reads!: {:?}", item_vec);
+            let header = std::str::from_utf8(&item_vec[0].rec.head).unwrap();
+            let msg = format_err!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
+            return Err(msg)
         }
 
         // We're missing a read in the pair, and we would expect it.
@@ -1381,6 +1393,7 @@ mod tests {
             flag_reads_per_fastq: 100000,
             flag_locus: None,
             flag_bx_list: None,
+            flag_traceback: false,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1416,6 +1429,7 @@ mod tests {
             flag_reads_per_fastq: 100000,
             flag_locus: None,
             flag_bx_list: None,
+            flag_traceback: false,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1453,6 +1467,7 @@ mod tests {
             flag_reads_per_fastq: 100000,
             flag_locus: None,
             flag_bx_list: None,
+            flag_traceback: false,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1490,11 +1505,34 @@ mod tests {
             flag_reads_per_fastq: 100000,
             flag_locus: None,
             flag_bx_list: None,
+            flag_traceback: false,
         };
 
         let res = super::go(args, Some(2));
 
         println!("res: {:?}", res);
+    }
+
+    #[test]
+    fn unpaired_record() {
+        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tmp_path = tempdir.path().join("outs");
+
+        let args = Args {
+            flag_nthreads: 2,
+            arg_bam: "test/unpaired_record.bam".to_string(),
+            arg_output_path: tmp_path.to_str().unwrap().to_string(),
+            flag_gemcode: false,
+            flag_lr20: false,
+            flag_cr11: false,
+            flag_reads_per_fastq: 100000,
+            flag_locus: None,
+            flag_bx_list: None,
+            flag_traceback: false,
+        };
+
+        let res = super::go(args, Some(2));
+        assert!(res.is_err());
     }
 
     #[test]
@@ -1512,6 +1550,7 @@ mod tests {
             flag_reads_per_fastq: 100000,
             flag_locus: None,
             flag_bx_list: None,
+            flag_traceback: false,
         };
 
         let res = super::go(args, Some(2));
@@ -1534,6 +1573,7 @@ mod tests {
             flag_reads_per_fastq: 100000,
             flag_locus: None,
             flag_bx_list: None,
+            flag_traceback: false,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
