@@ -512,14 +512,14 @@ impl FormatBamRecords {
                     return Ok(());
                 }
                 let e = format_err!(
-                    "BAM record missing tag: {:?} on read {:?}. You do not appear to have the original 10x BAM file.\nIf you downloaded this BAM file from SRA, you likely need to download an 'unstripped' version of the BAM.",
+                    "BAM record missing tag: {:?} on read {:?}. You do not appear to have an original 10x BAM file.\nIf you downloaded this BAM file from SRA, you likely need to download the 'Original Format' version of the BAM available for most 10x datasets.",
                     tag,
                     std::str::from_utf8(rec.qname()).unwrap()
                 );
                 return Err(e);
             }
             Some(tag_val) => {
-                let e = format_err!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}.\n You do not appear to have the original 10x BAM file. If you downloaded this BAM file from SRA, you likely need to download an 'unstripped' version of the BAM.", std::str::from_utf8(rec.qname()).unwrap(), tag, tag_val);
+                let e = format_err!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}.\n You do not appear to have the original 10x BAM file. If you downloaded this BAM file from SRA, you likely need to download the 'Original Format' version of the BAM available for most 10x datasets.", std::str::from_utf8(rec.qname()).unwrap(), tag, tag_val);
                 return Err(e);
             }
         }
