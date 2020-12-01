@@ -72,6 +72,7 @@ Options:
   --nthreads=<n>        Threads to use for reading BAM file [default: 4]
   --locus=<locus>       Optional. Only include read pairs mapping to locus. Use chrom:start-end format.
   --reads-per-fastq=N   Number of reads per FASTQ chunk [default: 50000000]
+  --relaxed             Skip unpaired or duplicated reads instead of throwing an error.
   --gemcode             Convert a BAM produced from GemCode data (Longranger 1.0 - 1.3)
   --lr20                Convert a BAM produced by Longranger 2.0
   --cr11                Convert a BAM produced by Cell Ranger 1.0-1.1
@@ -106,6 +107,7 @@ pub struct Args {
     flag_lr20: bool,
     flag_cr11: bool,
     flag_traceback: bool,
+    flag_relaxed: bool,
 }
 
 /// A Fastq record ready to be written
@@ -1103,7 +1105,7 @@ pub fn inner<R: bam::Read>(
             // BX-sorted case: get a selected set of BXs
             let bxi = bx_index::BxIndex::new(args.arg_bam)?;
             let bx_iter = BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam)?;
-            proc_double_ended(bx_iter, formatter, fq, cache_size, false)
+            proc_double_ended(bx_iter, formatter, fq, cache_size, false, args.flag_relaxed)
         } else {
             // Standard pos-sorted case
             //let recs_convert_err = bam.records().map(|x| x.map_err(|e| e.into()));
@@ -1113,6 +1115,7 @@ pub fn inner<R: bam::Read>(
                 fq,
                 cache_size,
                 args.flag_locus.is_some(),
+                args.flag_relaxed,
             )
         }
     } else {
@@ -1120,7 +1123,7 @@ pub fn inner<R: bam::Read>(
             // BX-sorted case: get a selected set of BXs
             let bxi = bx_index::BxIndex::new(args.arg_bam)?;
             let bx_iter = BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam)?;
-            proc_double_ended(bx_iter, formatter, fq, cache_size, false)
+            proc_double_ended(bx_iter, formatter, fq, cache_size, false, args.flag_relaxed)
         } else {
             println!("entry");
             proc_single_ended(bam.records(), formatter, fq)
@@ -1134,6 +1137,7 @@ fn proc_double_ended<I, E>(
     mut fq: FastqManager,
     cache_size: usize,
     restricted_locus: bool,
+    relaxed: bool
 ) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error>
 where
     I: Iterator<Item = Result<Record, E>>,
@@ -1145,7 +1149,7 @@ where
 
     let total_read_pairs = {
         // Cache for efficiently finding local read pairs
-        let mut rp_cache = RpCache::new(cache_size);
+        let mut rp_cache = RpCache::new(cache_size, relaxed);
 
         // For chimeric read piars that are showing up in different places, we will write these to disk for later use
         let w: ShardWriter<SerFq, SerFqSort> =
@@ -1209,7 +1213,7 @@ where
         let mut item_vec = _item_vec?;
 
         // We're missing a read in the pair, and we would expect it.
-        if item_vec.len() != 2 && !restricted_locus {
+        if !relaxed && item_vec.len() != 2 && !restricted_locus {
             let header = std::str::from_utf8(&item_vec[0].rec.head).unwrap();
             let msg = format_err!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
             return Err(msg);
@@ -1391,6 +1395,7 @@ mod tests {
             flag_locus: None,
             flag_bx_list: None,
             flag_traceback: false,
+            flag_relaxed: false,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1427,6 +1432,7 @@ mod tests {
             flag_locus: None,
             flag_bx_list: None,
             flag_traceback: false,
+            flag_relaxed: false,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1465,6 +1471,7 @@ mod tests {
             flag_locus: None,
             flag_bx_list: None,
             flag_traceback: false,
+            flag_relaxed: false,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();
@@ -1503,6 +1510,7 @@ mod tests {
             flag_locus: None,
             flag_bx_list: None,
             flag_traceback: false,
+            flag_relaxed: false,
         };
 
         let res = super::go(args, Some(2));
@@ -1526,6 +1534,7 @@ mod tests {
             flag_locus: None,
             flag_bx_list: None,
             flag_traceback: false,
+            flag_relaxed: false,
         };
 
         let res = super::go(args, Some(2));
@@ -1548,6 +1557,7 @@ mod tests {
             flag_locus: None,
             flag_bx_list: None,
             flag_traceback: false,
+            flag_relaxed: false,
         };
 
         let res = super::go(args, Some(2));
@@ -1571,6 +1581,7 @@ mod tests {
             flag_locus: None,
             flag_bx_list: None,
             flag_traceback: false,
+            flag_relaxed: false,
         };
 
         let out_path_sets = super::go(args, Some(2)).unwrap();

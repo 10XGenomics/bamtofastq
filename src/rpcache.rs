@@ -8,13 +8,15 @@ use std::collections::HashMap;
 pub struct RpCache {
     pub cache_size: usize,
     pub cache: HashMap<Vec<u8>, Record>,
+    pub relaxed: bool,
 }
 
 impl RpCache {
-    pub fn new(cache_size: usize) -> RpCache {
+    pub fn new(cache_size: usize, relaxed: bool) -> RpCache {
         RpCache {
             cache: HashMap::new(),
             cache_size,
+            relaxed,
         }
     }
 
@@ -27,6 +29,8 @@ impl RpCache {
                 } else if old_rec.is_first_in_template() && rec.is_last_in_template() {
                     Some((old_rec, rec))
                 } else {
+                    if self.relaxed { return None; }
+
                     println!(
                         "Found invalid set of BAM record for qname: {}.",
                         String::from_utf8_lossy(rec.qname())
