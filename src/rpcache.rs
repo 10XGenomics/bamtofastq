@@ -29,7 +29,9 @@ impl RpCache {
                 } else if old_rec.is_first_in_template() && rec.is_last_in_template() {
                     Some((old_rec, rec))
                 } else {
-                    if self.relaxed { return None; }
+                    if self.relaxed {
+                        return None;
+                    }
 
                     println!(
                         "Found invalid set of BAM record for qname: {}.",

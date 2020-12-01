@@ -1137,7 +1137,7 @@ fn proc_double_ended<I, E>(
     mut fq: FastqManager,
     cache_size: usize,
     restricted_locus: bool,
-    relaxed: bool
+    relaxed: bool,
 ) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error>
 where
     I: Iterator<Item = Result<Record, E>>,
