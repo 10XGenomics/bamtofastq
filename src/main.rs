@@ -1213,10 +1213,15 @@ where
         let mut item_vec = _item_vec?;
 
         // We're missing a read in the pair, and we would expect it.
-        if !relaxed && item_vec.len() != 2 && !restricted_locus {
+        if item_vec.len() != 2 && !restricted_locus {
             let header = std::str::from_utf8(&item_vec[0].rec.head).unwrap();
-            let msg = format_err!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
-            return Err(msg);
+            if !relaxed {
+                let msg = format_err!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
+                return Err(msg);
+            }
+            else {
+                println!("Didn't find both records for a paired end read. Skipping. Read name of unpaired record: {}", header);
+            }
         }
 
         // We're missing a read in the pair, and we would expect it.

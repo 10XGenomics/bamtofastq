@@ -30,6 +30,10 @@ impl RpCache {
                     Some((old_rec, rec))
                 } else {
                     if self.relaxed {
+                        println!(
+                            "Found extra BAM record for qname: {}. Skipping due to --relaxed",
+                            String::from_utf8_lossy(rec.qname())
+                        );
                         return None;
                     }
 
