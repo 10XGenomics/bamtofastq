@@ -1214,6 +1214,7 @@ where
 
         // We're missing a read in the pair, and we would expect it.
         if item_vec.len() != 2 && !restricted_locus {
+
             let header = std::str::from_utf8(&item_vec[0].rec.head).unwrap();
             if !relaxed {
                 let msg = format_err!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
