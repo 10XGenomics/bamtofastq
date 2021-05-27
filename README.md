@@ -39,7 +39,12 @@ Options:
 ## BAM file format support
 
 10x BAMs produced by Long Ranger v2.1+ and Cell Ranger v1.2+ contain header fields that permit automatic conversion to the correct FASTQ sequences.
-Older 10x pipelines require arguments to indicate which pipeline created the BAM.
+Older 10x pipelines require arguments to indicate which pipeline created the BAM.  
+
+### BAM files from SRA
+
+If you are downloading BAM files from SRA, be sure to get the 'Original format' BAM file with `Type = TenX` from SRA. Only those BAM files have all the original tags present that are required to reconstruct the original FASTQs.
+See an example here [on SRA](https://trace.ncbi.nlm.nih.gov/Traces/sra/?run=SRR8377710).
 
 ### Sequence Layout
 
