@@ -64,7 +64,7 @@ impl BxIndex {
 pub fn get_records_for_bx<R: Read>(
     index: &BxIndex,
     reader: &mut R,
-    bx: &str,
+    bx: &String,
 ) -> Result<Vec<Record>, Error> {
     let start = index.get_voffset(bx);
     reader.seek(start as i64)?;
