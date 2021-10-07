@@ -42,7 +42,7 @@ impl BxIndex {
         Ok(res)
     }
 
-    pub fn get_voffset(&self, bx: &String) -> usize {
+    pub fn get_voffset(&self, bx: &str) -> usize {
         match self.obs.binary_search_by_key(&bx, |x| &x.bx) {
             Ok(pos) => self.obs[pos].offset,
             Err(pos) => self.obs[pos - 1].offset,
@@ -75,7 +75,7 @@ pub fn get_records_for_bx<R: Read>(
 
     while let Some(Ok(rec)) = rec_iter.next() {
         let bx_read = match rec.aux(b"BX") {
-            Some(Aux::String(s)) => String::from_utf8(Vec::from(s))?,
+            Ok(Aux::String(s)) => String::from_utf8(Vec::from(s))?,
             _ => "".to_string(),
         };
 
