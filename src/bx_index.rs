@@ -8,8 +8,7 @@ use rust_htslib::bam::record::{Aux, Record};
 use rust_htslib::bam::Read;
 use serde::Deserialize;
 
-use failure::Error;
-use failure::ResultExt;
+use anyhow::{Context, Error};
 
 #[derive(Deserialize, Ord, PartialOrd, Eq, PartialEq)]
 struct BcObs {
