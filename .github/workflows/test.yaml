@@ -46,7 +46,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: |
-            --manifest-path=lib/rust/cr_ana/Cargo.toml --all-targets --locked --
+            --all-targets --locked --
             -W clippy::wildcard_imports
             -W clippy::redundant_closure_for_method_calls
             -W clippy::enum_glob_use
