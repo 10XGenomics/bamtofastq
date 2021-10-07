@@ -1,7 +1,5 @@
 // Copyright (c) 2020 10x Genomics, Inc. All rights reserved.
 
-use flate2;
-
 use flate2::read::MultiGzDecoder;
 use std::boxed::Box;
 use std::fs::File;
@@ -60,7 +58,7 @@ pub fn open_fastq_pair_iter<P: AsRef<Path>>(
     Box::new(FastqPairIter::init(
         open_w_gz(r1),
         open_w_gz(r2),
-        si.map(|si| open_w_gz(si)),
+        si.map(open_w_gz),
     ))
 }
 
@@ -101,7 +99,7 @@ pub fn open_interleaved_fastq_pair_iter<P: AsRef<Path>>(
 ) -> Box<dyn Iterator<Item = RawReadSet>> {
     Box::new(InterleavedFastqPairIter::init(
         open_w_gz(ra),
-        si.map(|si| open_w_gz(si)),
+        si.map(open_w_gz),
     ))
 }
 
