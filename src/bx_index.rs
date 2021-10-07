@@ -8,8 +8,7 @@ use rust_htslib::bam::record::{Aux, Record};
 use rust_htslib::bam::Read;
 use serde::Deserialize;
 
-use failure::Error;
-use failure::ResultExt;
+use anyhow::{Context, Error};
 
 #[derive(Deserialize, Ord, PartialOrd, Eq, PartialEq)]
 struct BcObs {
@@ -65,7 +64,7 @@ impl BxIndex {
 pub fn get_records_for_bx<R: Read>(
     index: &BxIndex,
     reader: &mut R,
-    bx: &String,
+    bx: &str,
 ) -> Result<Vec<Record>, Error> {
     let start = index.get_voffset(bx);
     reader.seek(start as i64)?;

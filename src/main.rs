@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::fs::create_dir;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::panic;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use anyhow::{anyhow, Context, Error};
 use docopt::Docopt;
-use failure::{format_err, Error, ResultExt};
 use flate2::write::GzEncoder;
-use human_panic::setup_panic;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -493,7 +493,7 @@ impl FormatBamRecords {
                     },
                 },
                 _ => {
-                    let e = format_err!(
+                    let e = anyhow!(
                         "Not a valid read pair: {}, {}",
                         rec.is_first_in_template(),
                         rec.is_last_in_template()
@@ -513,7 +513,7 @@ impl FormatBamRecords {
                 if last_tag {
                     return Ok(());
                 }
-                let e = format_err!(
+                let e = anyhow!(
                     "BAM record missing tag: {:?} on read {:?}. You do not appear to have an original 10x BAM file.\nIf you downloaded this BAM file from SRA, you likely need to download the 'Original Format' version of the BAM available for most 10x datasets.",
                     tag,
                     std::str::from_utf8(rec.qname()).unwrap()
@@ -521,7 +521,7 @@ impl FormatBamRecords {
                 return Err(e);
             }
             Ok(tag_val) => {
-                let e = format_err!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}.\n You do not appear to have the original 10x BAM file. If you downloaded this BAM file from SRA, you likely need to download the 'Original Format' version of the BAM available for most 10x datasets.", std::str::from_utf8(rec.qname()).unwrap(), tag, tag_val);
+                let e = anyhow!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}.\n You do not appear to have the original 10x BAM file. If you downloaded this BAM file from SRA, you likely need to download the 'Original Format' version of the BAM available for most 10x datasets.", std::str::from_utf8(rec.qname()).unwrap(), tag, tag_val);
                 return Err(e);
             }
         }
@@ -913,7 +913,7 @@ impl FastqWriter {
     }
 
     /// Write a set of fastq records
-    pub fn write(
+    fn write(
         &mut self,
         r1: &FqRecord,
         r2: &FqRecord,
@@ -967,8 +967,8 @@ impl FastqWriter {
 }
 
 fn main() {
-    // initialize human_panic
-    setup_panic!();
+    set_panic_handler();
+    std::env::set_var("RUST_BACKTRACE", "1");
 
     println!("bamtofastq v{}", VERSION);
     let args: Args = Docopt::new(USAGE)
@@ -979,16 +979,43 @@ fn main() {
     let res = go(args, None);
 
     if let Err(ref e) = res {
-        println!("bamtofastqerror: {}\n", e);
-        println!("Please contact patrick@10xgenomics.com for assistance. Please re-run with --traceback and include stack trace with an error report");
+        println!("bamtofastq error: {}\n", e);
+        println!("If this error is unexpected, contact support@10xgenomics.com for assistance. Please re-run with --traceback and include stack trace with an error report");
 
         if traceback {
             println!("see below for more details:");
             println!("==========================");
-            println!("{}\n{}", e.as_fail(), e.backtrace());
-        }
+            println!("{}\n{}", e, e.backtrace());
+        };
         ::std::process::exit(1);
     }
+}
+
+fn set_panic_handler() {
+    panic::set_hook(Box::new(move |info| {
+        let backtrace = backtrace::Backtrace::new();
+
+        let msg = match info.payload().downcast_ref::<&'static str>() {
+            Some(s) => *s,
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &**s,
+                None => "Box<Any>",
+            },
+        };
+
+        let msg = match info.location() {
+            Some(location) => format!(
+                "bamtofastq failed unexpectedly. Please contact support@10xgenomics.com with the following information: '{}' {}:{}:\n{:?}",
+                msg,
+                location.file(),
+                location.line(),
+                backtrace
+            ),
+            None => format!("bamtofastq failed unexpectedly. Please contact support@10xgenomics.com with the following information: '{}':\n{:?}", msg, backtrace),
+        };
+
+        println!("{}", msg);
+    }));
 }
 
 pub fn go(
@@ -999,7 +1026,7 @@ pub fn go(
 
     let path = std::path::PathBuf::from(args.arg_bam.clone());
     if !path.exists() {
-        return Err(format_err!("BAM file doesn't exist: {:?}", path));
+        return Err(anyhow!("BAM file doesn't exist: {:?}", path));
     }
 
     match args.flag_locus {
@@ -1012,7 +1039,7 @@ pub fn go(
             let tid = bam
                 .header()
                 .tid(loc.chrom.as_bytes())
-                .ok_or_else(|| format_err!("Requested chromosome not present: {}", loc.chrom))?;
+                .ok_or_else(|| anyhow!("Requested chromosome not present: {}", loc.chrom))?;
 
             bam.fetch((tid, loc.start, loc.end))?;
             inner(args.clone(), cache_size, bam)
@@ -1054,15 +1081,15 @@ pub fn inner<R: bam::Read>(
                 }
 
                 if args.flag_gemcode {
-                    return Err(format_err!("Do not use a pipeline-specific command-line flag: --gemcode. Supplied BAM file already contains bamtofastq headers."));
+                    return Err(anyhow!("Do not use a pipeline-specific command-line flag: --gemcode. Supplied BAM file already contains bamtofastq headers."));
                 }
 
                 if args.flag_lr20 {
-                    return Err(format_err!("Do not use a pipeline-specific command-line flag: --lr20. Supplied BAM file already contains bamtofastq headers."));
+                    return Err(anyhow!("Do not use a pipeline-specific command-line flag: --lr20. Supplied BAM file already contains bamtofastq headers."));
                 }
 
                 if args.flag_cr11 {
-                    return Err(format_err!("Do not use a pipeline-specific command-line flag: --cr11. Supplied BAM file already contains bamtofastq headers."));
+                    return Err(anyhow!("Do not use a pipeline-specific command-line flag: --cr11. Supplied BAM file already contains bamtofastq headers."));
                 }
 
                 f
@@ -1087,13 +1114,12 @@ pub fn inner<R: bam::Read>(
 
     // make output dir
     let out_path = Path::new(&args.arg_output_path);
-    create_dir(&args.arg_output_path).context(format_err!(
+    create_dir(&args.arg_output_path).context(anyhow!(
         "error creating output directory: {:?}. Does it already exist?",
         &out_path
     ))?;
 
     // prep output files
-    println!("{:?}", args);
     let fq = FastqManager::new(
         out_path,
         formatter.clone(),
@@ -1125,7 +1151,6 @@ pub fn inner<R: bam::Read>(
         let bx_iter = BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam)?;
         proc_double_ended(bx_iter, formatter, fq, cache_size, false, args.flag_relaxed)
     } else {
-        println!("entry");
         proc_single_ended(bam.records(), formatter, fq)
     }
 }
@@ -1140,8 +1165,7 @@ fn proc_double_ended<I, E>(
 ) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error>
 where
     I: Iterator<Item = Result<Record, E>>,
-    E: Send + Sync,
-    Result<Record, E>: ResultExt<Record, E>,
+    Result<Record, E>: Context<Record, E>,
 {
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
     let tmp_file = NamedTempFile::new_in(&fq.out_path)?;
@@ -1215,7 +1239,7 @@ where
         if item_vec.len() != 2 && !restricted_locus {
             let header = std::str::from_utf8(&item_vec[0].rec.head).unwrap();
             if !relaxed {
-                let msg = format_err!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
+                let msg = anyhow!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
                 return Err(msg);
             } else {
                 println!("Didn't find both records for a paired end read. Skipping. Read name of unpaired record: {}", header);
@@ -1244,14 +1268,13 @@ where
     Ok(fq.paths())
 }
 
-fn proc_single_ended<I, E>(
+fn proc_single_ended<I>(
     records: I,
     formatter: FormatBamRecords,
     mut fq: FastqManager,
 ) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error>
 where
-    I: Iterator<Item = Result<Record, E>>,
-    Result<Record, E>: ResultExt<Record, E>,
+    I: Iterator<Item = Result<Record, rust_htslib::errors::Error>>,
 {
     let total_reads = {
         // Count total R1s observed, so we can make sure we've preserved all read pairs

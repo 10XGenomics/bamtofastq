@@ -9,18 +9,18 @@ resolver = "2"
 docopt = "*"
 rust-htslib = "0.38"
 flate2 = { version = "1.0", features = ["zlib"], default-features = false }
-shardio = { git = "https://github.com/10XGenomics/rust-shardio.git" }
+shardio = "0.8.1"
 bincode = "1"
 itertools = ">=0.8.0"
 regex = "*"
 tempfile = "*"
+backtrace = "0.3"
 
 csv = "1.0.0"
 serde = "^1.0.7"
 serde_derive = "^1"
 serde_bytes = "*"
-failure = "*"
-human-panic = "1"
+anyhow = { version = "1.0", features = ["backtrace"] }
 
 [profile.release]
 debug = 1

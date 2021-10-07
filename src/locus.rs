@@ -1,7 +1,6 @@
 // Copyright (c) 2020 10x Genomics, Inc. All rights reserved.
 
-use failure::format_err;
-use failure::Error;
+use anyhow::{anyhow, Error};
 use regex::Regex;
 use serde::Deserialize;
 use std::fmt;
@@ -33,7 +32,7 @@ impl FromStr for Locus {
         let cap = re.captures(s);
 
         if cap.is_none() {
-            return Err(format_err!("invalid locus string: {}", s));
+            return Err(anyhow!("invalid locus string: {}", s));
         }
 
         let cap = cap.unwrap();
