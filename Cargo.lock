@@ -27,6 +27,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61604a8f862e1d5c3229fdd78f8b02c68dcf73a4c4b05fd636d12240aaa242c1"
+
+[[package]]
 name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -758,14 +764,13 @@ dependencies = [
 
 [[package]]
 name = "shardio"
-version = "0.8.0"
-source = "git+https://github.com/10XGenomics/rust-shardio.git#b700c2d66ea59cd5cd7563137d7b63f205a61993"
+version = "0.8.1"
+source = "git+https://github.com/10XGenomics/rust-shardio.git#204c8ebfaf7a9776b439d195a954e3efaabf02d0"
 dependencies = [
+ "anyhow",
  "bincode",
  "byteorder",
  "crossbeam-channel",
- "failure",
- "failure_derive",
  "log",
  "lz4",
  "min-max-heap",
