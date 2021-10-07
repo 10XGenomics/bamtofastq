@@ -1288,7 +1288,6 @@ mod tests {
     use super::*;
     use fastq_reader::*;
     use std::collections::HashMap;
-    use tempdir;
 
     type ReadSet = HashMap<Vec<u8>, RawReadSet>;
 
@@ -1385,7 +1384,10 @@ mod tests {
 
     #[test]
     fn test_lr21() {
-        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tempdir = tempfile::Builder::new()
+            .prefix("bam_to_fq_test")
+            .tempdir()
+            .expect("create temp dir");
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
@@ -1422,7 +1424,10 @@ mod tests {
 
     #[test]
     fn test_lr20() {
-        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tempdir = tempfile::Builder::new()
+            .prefix("bam_to_fq_test")
+            .tempdir()
+            .expect("create temp dir");
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
@@ -1461,7 +1466,10 @@ mod tests {
 
     #[test]
     fn test_cr12() {
-        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tempdir = tempfile::Builder::new()
+            .prefix("bam_to_fq_test")
+            .tempdir()
+            .expect("create temp dir");
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
@@ -1500,7 +1508,10 @@ mod tests {
 
     #[test]
     fn bad_bam() {
-        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tempdir = tempfile::Builder::new()
+            .prefix("bam_to_fq_test")
+            .tempdir()
+            .expect("create temp dir");
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
@@ -1524,7 +1535,10 @@ mod tests {
 
     #[test]
     fn unpaired_record() {
-        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tempdir = tempfile::Builder::new()
+            .prefix("bam_to_fq_test")
+            .tempdir()
+            .expect("create temp dir");
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
@@ -1547,7 +1561,10 @@ mod tests {
 
     #[test]
     fn wrong_header() {
-        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tempdir = tempfile::Builder::new()
+            .prefix("bam_to_fq_test")
+            .tempdir()
+            .expect("create temp dir");
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {
@@ -1571,7 +1588,10 @@ mod tests {
 
     #[test]
     fn test_cr12_v1() {
-        let tempdir = tempdir::TempDir::new("bam_to_fq_test").expect("create temp dir");
+        let tempdir = tempfile::Builder::new()
+            .prefix("bam_to_fq_test")
+            .tempdir()
+            .expect("create temp dir");
         let tmp_path = tempdir.path().join("outs");
 
         let args = Args {

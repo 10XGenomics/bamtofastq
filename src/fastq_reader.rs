@@ -1,7 +1,6 @@
 // Copyright (c) 2020 10x Genomics, Inc. All rights reserved.
 
-extern crate flate2;
-extern crate ordered_float;
+use flate2;
 
 use flate2::read::MultiGzDecoder;
 use std::boxed::Box;
