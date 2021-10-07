@@ -78,7 +78,7 @@ impl RpCache {
                 orphans.push(rec);
             }
 
-            dist = dist / 2;
+            dist /= 2;
         }
 
         // Cache got too full -- just clear it
