@@ -1,0 +1,105 @@
+targets = [
+    # The triple can be any string, but only the target triples built in to
+    # rustc (as of 1.40) can be checked against actual config expressions
+    { triple = "x86_64-unknown-linux-gnu" },
+]
+
+# This section is considered when running `cargo deny check advisories`
+# More documentation for the advisories section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
+[advisories]
+# The url(s) of the advisory databases to use
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# The lint level for security vulnerabilities
+vulnerability = "deny"
+# The lint level for unmaintained crates
+unmaintained = "warn"
+# The lint level for crates that have been yanked from their source registry
+yanked = "warn"
+# The lint level for crates with security notices. Note that as of
+# 2019-12-17 there are no security notice advisories in
+# https://github.com/rustsec/advisory-db
+notice = "warn"
+# A list of advisory IDs to ignore. Note that ignored advisories will still
+# output a note when they are encountered.
+ignore = [
+    "RUSTSEC-2019-0036",  # TODO: stop using failure.
+    "RUSTSEC-2020-0036",  # TODO: stop using failure.
+]
+
+# This section is considered when running `cargo deny check licenses`
+# More documentation for the licenses section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
+[licenses]
+# The lint level for crates which do not have a detectable license
+unlicensed = "deny"
+# List of explictly allowed licenses
+# See https://spdx.org/licenses/ for list of possible licenses
+# [possible values: any SPDX 3.11 short identifier (+ optional exception)].
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "Zlib",
+]
+# Lint level for licenses considered copyleft
+copyleft = "warn"
+# Lint level used when no other predicates are matched
+default = "deny"
+# The confidence threshold for detecting a license from license text.
+# The higher the value, the more closely the license text must be to the
+# canonical license text of a valid SPDX license file.
+# [possible values: any between 0.0 and 1.0].
+confidence-threshold = 0.6
+
+[licenses.private]
+# If true, ignores workspace crates that aren't published, or are only
+# published to private registries
+ignore = true
+
+# This section is considered when running `cargo deny check bans`.
+# More documentation about the 'bans' section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html
+[bans]
+# Lint level for when multiple versions of the same crate are detected
+multiple-versions = "deny"
+# Lint level for when a crate version requirement is `*`
+wildcards = "allow"
+# The graph highlighting used when creating dotgraphs for crates
+# with multiple versions
+# * lowest-version - The path to the lowest versioned duplicate is highlighted
+# * simplest-path - The path to the version with the fewest edges is highlighted
+# * all - Both lowest-version and simplest-path are used
+highlight = "all"
+# Certain crates/versions that will be skipped when doing duplicate detection.
+skip = [
+]
+# Similarly to `skip` allows you to skip certain crates during duplicate 
+# detection. Unlike skip, it also includes the entire tree of transitive 
+# dependencies starting at the specified crate, up to a certain depth, which is
+# by default infinite
+skip-tree = [
+]
+
+# This section is considered when running `cargo deny check sources`.
+# More documentation about the 'sources' section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/sources/cfg.html
+[sources]
+# Lint level for what to happen when a crate from a crate registry that is not
+# in the allow list is encountered
+unknown-registry = "warn"
+# Lint level for what to happen when a crate from a git repository that is not
+# in the allow list is encountered
+unknown-git = "warn"
+# List of URLs for allowed crate registries. Defaults to the crates.io index
+# if not specified. If it is specified but empty, no registries are allowed.
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# List of URLs for allowed Git repositories
+allow-git = []
+
+[sources.allow-org]
+# 1 or more github.com organizations to allow git sources for
+github = ["10XGenomics"]
+# 1 or more gitlab.com organizations to allow git sources for
+gitlab = []
+# 1 or more bitbucket.org organizations to allow git sources for
+bitbucket = []

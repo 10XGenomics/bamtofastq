@@ -73,12 +73,7 @@ pub fn get_records_for_bx<R: Read>(
     let mut rec_iter = reader.records();
     let mut recs = Vec::new();
 
-    loop {
-        let rec = match rec_iter.next() {
-            Some(Ok(r)) => r,
-            _ => break,
-        };
-
+    while let Some(Ok(rec)) = rec_iter.next() {
         let bx_read = match rec.aux(b"BX") {
             Some(Aux::String(s)) => String::from_utf8(Vec::from(s))?,
             _ => "".to_string(),
