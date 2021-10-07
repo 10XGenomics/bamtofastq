@@ -34,9 +34,9 @@ mod fastq_reader;
 use bx_index::BxListIter;
 use rpcache::RpCache;
 
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const USAGE: &'static str = "
+const USAGE: &str = "
 10x Genomics BAM to FASTQ converter.
 
     Tool for converting 10x BAMs produced by Cell Ranger or Long Ranger back to
@@ -194,15 +194,15 @@ impl FormatBamRecords {
         let rgs = Self::parse_rgs(reader);
         let seq_names = Self::parse_seq_names(reader);
 
-        if spec.len() == 0 {
+        if spec.is_empty() {
             None
         } else {
             Some(FormatBamRecords {
                 rg_spec: rgs,
                 r1_spec: spec.remove("R1").unwrap(),
                 r2_spec: spec.remove("R2").unwrap(),
-                i1_spec: spec.remove("I1").unwrap_or_else(|| Vec::new()),
-                i2_spec: spec.remove("I2").unwrap_or_else(|| Vec::new()),
+                i1_spec: spec.remove("I1").unwrap_or_else(Vec::new),
+                i2_spec: spec.remove("I2").unwrap_or_else(Vec::new),
                 rename: seq_names,
                 order: [1, 3, 2, 4],
             })
@@ -278,7 +278,7 @@ impl FormatBamRecords {
             }
         }
 
-        if rg_items.len() == 0 {
+        if rg_items.is_empty() {
             println!("WARNING: no @RG (read group) headers found in BAM file. Splitting data by the GEM well marked in the corrected barcode tag.");
             println!("Reads without a corrected barcode will not appear in output FASTQs");
             // No RG items in header -- invent a set fixed set of RGs
@@ -391,7 +391,7 @@ impl FormatBamRecords {
                 return Some(seq_names);
             }
         }
-        return None;
+        None
     }
 
     fn try_get_rg(&self, rec: &Record) -> Option<Rg> {
@@ -399,7 +399,7 @@ impl FormatBamRecords {
         match rg {
             Some(Aux::String(s)) => {
                 let key = String::from_utf8(Vec::from(s)).unwrap();
-                self.rg_spec.get(&key).map(|x| x.clone())
+                self.rg_spec.get(&key).cloned()
             }
             Some(..) => panic!(
                 "invalid type of RG header. record: {}",
@@ -413,11 +413,11 @@ impl FormatBamRecords {
         let main_rg_tag = self.try_get_rg(rec);
 
         if main_rg_tag.is_some() {
-            return main_rg_tag;
+            main_rg_tag
         } else {
             let emit = |tag| {
                 let corrected_bc = String::from_utf8(Vec::from(tag)).unwrap();
-                let mut parts = (&corrected_bc).split("-");
+                let mut parts = (&corrected_bc).split('-');
                 let _ = parts.next();
                 match parts.next() {
                     Some(v) => {
@@ -425,7 +425,7 @@ impl FormatBamRecords {
                             Ok(v) => {
                                 //println!("got gg: {}", v);
                                 let name = format!("gemgroup{:03}", v);
-                                self.rg_spec.get(&name).map(|x| x.clone())
+                                self.rg_spec.get(&name).cloned()
                             }
                             _ => None,
                         }
@@ -463,12 +463,12 @@ impl FormatBamRecords {
                     rec: self
                         .bam_rec_to_fq(rec, &self.r1_spec, self.order[0])
                         .unwrap(),
-                    i1: if self.i1_spec.len() > 0 {
+                    i1: if !self.i1_spec.is_empty() {
                         Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2])?)
                     } else {
                         None
                     },
-                    i2: if self.i2_spec.len() > 0 {
+                    i2: if !self.i2_spec.is_empty() {
                         Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3])?)
                     } else {
                         None
@@ -481,12 +481,12 @@ impl FormatBamRecords {
                     rec: self
                         .bam_rec_to_fq(rec, &self.r2_spec, self.order[1])
                         .unwrap(),
-                    i1: if self.i1_spec.len() > 0 {
+                    i1: if !self.i1_spec.is_empty() {
                         Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2])?)
                     } else {
                         None
                     },
-                    i2: if self.i2_spec.len() > 0 {
+                    i2: if !self.i2_spec.is_empty() {
                         Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3])?)
                     } else {
                         None
@@ -545,15 +545,15 @@ impl FormatBamRecords {
         let mut read = Vec::new();
         let mut qv = Vec::new();
 
-        for (idx, item) in spec.into_iter().enumerate() {
+        for (idx, item) in spec.iter().enumerate() {
             // It OK for the final tag in the spec to be missing from the read
             let last_item = idx == spec.len() - 1;
 
             match item {
                 // Data from a tag
                 &SpecEntry::Tags(ref read_tag, ref qv_tag) => {
-                    Self::fetch_tag(rec, &read_tag, last_item, &mut read)?;
-                    Self::fetch_tag(rec, &qv_tag, last_item, &mut qv)?;
+                    Self::fetch_tag(rec, read_tag, last_item, &mut read)?;
+                    Self::fetch_tag(rec, qv_tag, last_item, &mut qv)?;
                 }
 
                 // Just hardcode some Ns -- for cases where we didn't retain the required data
@@ -610,13 +610,13 @@ impl FormatBamRecords {
         let r1 = self.bam_rec_to_fq(r1_rec, &self.r1_spec, self.order[0])?;
         let r2 = self.bam_rec_to_fq(r2_rec, &self.r2_spec, self.order[1])?;
 
-        let i1 = if self.i1_spec.len() > 0 {
+        let i1 = if !self.i1_spec.is_empty() {
             Some(self.bam_rec_to_fq(r1_rec, &self.i1_spec, self.order[2])?)
         } else {
             None
         };
 
-        let i2 = if self.i2_spec.len() > 0 {
+        let i2 = if !self.i2_spec.is_empty() {
             Some(self.bam_rec_to_fq(r1_rec, &self.i2_spec, self.order[3])?)
         } else {
             None
@@ -642,13 +642,13 @@ impl FormatBamRecords {
         let r1 = self.bam_rec_to_fq(rec, &self.r1_spec, self.order[0])?;
         let r2 = self.bam_rec_to_fq(rec, &self.r2_spec, self.order[1])?;
 
-        let i1 = if self.i1_spec.len() > 0 {
+        let i1 = if !self.i1_spec.is_empty() {
             Some(self.bam_rec_to_fq(rec, &self.i1_spec, self.order[2])?)
         } else {
             None
         };
 
-        let i2 = if self.i2_spec.len() > 0 {
+        let i2 = if !self.i2_spec.is_empty() {
             Some(self.bam_rec_to_fq(rec, &self.i2_spec, self.order[3])?)
         } else {
             None
@@ -687,9 +687,9 @@ impl FastqManager {
             let samp = _samp.clone();
             let path = sample_def_paths.entry(samp).or_insert_with(|| {
                 let suffix = _samp.replace(":", "_");
-                let samp_path = out_path.join(suffix);
+
                 //create_dir(&samp_path).expect("couldn't create output directory");
-                samp_path
+                out_path.join(suffix)
             });
 
             let writer = FastqWriter::new(
@@ -703,7 +703,7 @@ impl FastqManager {
         }
 
         FastqManager {
-            writers: writers,
+            writers,
             out_path: out_path.to_path_buf(),
         }
     }
@@ -725,7 +725,7 @@ impl FastqManager {
     }
 
     pub fn total_written(&self) -> usize {
-        self.writers.iter().map(|(_, ref w)| w.total_written).sum()
+        self.writers.iter().map(|(_, w)| w.total_written).sum()
     }
 
     pub fn paths(&self) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
@@ -768,10 +768,10 @@ impl FastqWriter {
         reads_per_fastq: usize,
     ) -> FastqWriter {
         FastqWriter {
-            formatter: formatter,
+            formatter,
             out_path: out_path.to_path_buf(),
-            sample_name: sample_name,
-            lane: lane,
+            sample_name,
+            lane,
             r1: None,
             r2: None,
             i1: None,
@@ -779,7 +779,7 @@ impl FastqWriter {
             n_chunks: 0,
             total_written: 0,
             chunk_written: 0,
-            reads_per_fastq: reads_per_fastq,
+            reads_per_fastq,
             path_sets: vec![],
         }
     }
@@ -820,12 +820,12 @@ impl FastqWriter {
             (
                 r1,
                 r2,
-                if formatter.i1_spec.len() > 0 {
+                if !formatter.i1_spec.is_empty() {
                     Some(i1)
                 } else {
                     None
                 },
-                if formatter.i2_spec.len() > 0 {
+                if !formatter.i2_spec.is_empty() {
                     Some(i2)
                 } else {
                     None
@@ -866,12 +866,12 @@ impl FastqWriter {
             (
                 r1,
                 r2,
-                if formatter.i1_spec.len() > 0 {
+                if !formatter.i1_spec.is_empty() {
                     Some(i1)
                 } else {
                     None
                 },
-                if formatter.i2_spec.len() > 0 {
+                if !formatter.i2_spec.is_empty() {
                     Some(i2)
                 } else {
                     None
@@ -952,8 +952,8 @@ impl FastqWriter {
         );
         self.r1 = Some(Self::open_gzip_writer(&paths.0));
         self.r2 = Some(Self::open_gzip_writer(&paths.1));
-        self.i1 = paths.2.as_ref().map(|p| Self::open_gzip_writer(p));
-        self.i2 = paths.3.as_ref().map(|p| Self::open_gzip_writer(p));
+        self.i1 = paths.2.as_ref().map(Self::open_gzip_writer);
+        self.i2 = paths.3.as_ref().map(Self::open_gzip_writer);
         self.n_chunks += 1;
         self.chunk_written = 0;
         self.path_sets.push(paths);
@@ -1118,16 +1118,14 @@ pub fn inner<R: bam::Read>(
                 args.flag_relaxed,
             )
         }
+    } else if args.flag_bx_list.is_some() {
+        // BX-sorted case: get a selected set of BXs
+        let bxi = bx_index::BxIndex::new(args.arg_bam)?;
+        let bx_iter = BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam)?;
+        proc_double_ended(bx_iter, formatter, fq, cache_size, false, args.flag_relaxed)
     } else {
-        if args.flag_bx_list.is_some() {
-            // BX-sorted case: get a selected set of BXs
-            let bxi = bx_index::BxIndex::new(args.arg_bam)?;
-            let bx_iter = BxListIter::from_path(args.flag_bx_list.unwrap(), bxi, bam)?;
-            proc_double_ended(bx_iter, formatter, fq, cache_size, false, args.flag_relaxed)
-        } else {
-            println!("entry");
-            proc_single_ended(bam.records(), formatter, fq)
-        }
+        println!("entry");
+        proc_single_ended(bam.records(), formatter, fq)
     }
 }
 
@@ -1286,7 +1284,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fastq_reader::*;
+    use fastq_reader::{open_fastq_pair_iter, open_interleaved_fastq_pair_iter, FqRec, RawReadSet};
     use std::collections::HashMap;
 
     type ReadSet = HashMap<Vec<u8>, RawReadSet>;
@@ -1305,7 +1303,7 @@ mod tests {
         (
             strip_header_fqrec(r.0),
             strip_header_fqrec(r.1),
-            r.2.map(|x| strip_header_fqrec(x)),
+            r.2.map(strip_header_fqrec),
         )
     }
 

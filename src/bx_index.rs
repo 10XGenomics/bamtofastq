@@ -1,7 +1,5 @@
 // Copyright (c) 2020 10x Genomics, Inc. All rights reserved.
 
-use csv;
-
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::result;
@@ -35,9 +33,12 @@ impl BxIndex {
             .has_headers(false)
             .delimiter(b'\t')
             .from_reader(f);
-        let obs: Vec<BcObs> = reader.deserialize().map(|x| x.unwrap()).collect();
+        let obs: Vec<BcObs> = reader
+            .deserialize()
+            .map(std::result::Result::unwrap)
+            .collect();
 
-        let res = BxIndex { obs: obs };
+        let res = BxIndex { obs };
         Ok(res)
     }
 
@@ -54,7 +55,10 @@ impl BxIndex {
             .has_headers(false)
             .delimiter(b'\t')
             .from_reader(f);
-        Ok(reader.deserialize().map(|x| x.unwrap()).collect())
+        Ok(reader
+            .deserialize()
+            .map(std::result::Result::unwrap)
+            .collect())
     }
 }
 
@@ -109,7 +113,7 @@ impl<R: Read> BxListIter<R> {
         index: BxIndex,
         mut reader: R,
     ) -> Result<BxListIter<R>, Error> {
-        let cur_vec = if bx_list.len() > 0 {
+        let cur_vec = if !bx_list.is_empty() {
             let mut v = get_records_for_bx(&index, &mut reader, &bx_list[0])?;
             v.reverse();
             v
@@ -118,11 +122,11 @@ impl<R: Read> BxListIter<R> {
         };
 
         Ok(BxListIter {
-            index: index,
-            reader: reader,
-            bx_list: bx_list,
+            index,
+            reader,
+            bx_list,
             cur_bx: 0,
-            cur_vec: cur_vec,
+            cur_vec,
         })
     }
 
@@ -137,7 +141,7 @@ impl<R: Read> Iterator for BxListIter<R> {
 
     fn next(&mut self) -> Option<result::Result<Record, Error>> {
         while self.cur_bx <= self.bx_list.len() {
-            if self.cur_vec.len() == 0 {
+            if self.cur_vec.is_empty() {
                 self.cur_bx += 1;
                 if self.cur_bx == self.bx_list.len() {
                     break;
@@ -158,6 +162,6 @@ impl<R: Read> Iterator for BxListIter<R> {
             }
         }
 
-        return None;
+        None
     }
 }
