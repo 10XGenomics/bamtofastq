@@ -2,7 +2,11 @@
 name = "bamtofastq"
 version = "1.3.5"
 authors = ["Patrick Marks <patrick@10xgenomics.com>"]
+license = "MIT"
+repository = "https://github.com/10XGenomics/bamtofastq.git"
+
 edition = "2018"
+include = ["src/**/*", "LICENSE", "README.md"]
 resolver = "2"
 
 [dependencies]
