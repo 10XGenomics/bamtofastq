@@ -881,14 +881,14 @@ impl FastqWriter {
     }
 
     pub fn write_rec(w: &mut BGW, rec: &FqRecord) -> Result<(), Error> {
-        w.write(b"@")?;
-        w.write(&rec.head)?;
-        w.write(b"\n")?;
+        w.write_all(b"@")?;
+        w.write_all(&rec.head)?;
+        w.write_all(b"\n")?;
 
-        w.write(&rec.seq)?;
-        w.write(b"\n+\n")?;
-        w.write(&rec.qual)?;
-        w.write(b"\n")?;
+        w.write_all(&rec.seq)?;
+        w.write_all(b"\n+\n")?;
+        w.write_all(&rec.qual)?;
+        w.write_all(b"\n")?;
         Ok(())
     }
 

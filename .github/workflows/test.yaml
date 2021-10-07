@@ -32,13 +32,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: rust version
-        run: rustup default 1.44.0
+        run: rustup default 1.55.0
       - name: add rustfmt
-        run: rustup component add rustfmt
+        run: rustup component add rustfmt clippy
       - name: Checkout bamtofastq master
         uses: actions/checkout@master
       - name: Check Rust formatting
         run: cargo fmt -- --check
+      - name: Check Cargo.lock
+        uses: EmbarkStudios/cargo-deny-action@v1
+      - name: lint with clippy
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: |
+            --all-targets --locked --
+            -W clippy::wildcard_imports
+            -W clippy::redundant_closure_for_method_calls
+            -W clippy::enum_glob_use
+            -A clippy::float_cmp
+            -D clippy::unused_io_amount
+            -W future_incompatible
+            -W nonstandard_style
+            -W rust_2018_compatibility
+            -W rust_2021_compatibility
+            -W unused
       - name: build-bamtofastq
         run: cargo build --release
       - name: unit tests
