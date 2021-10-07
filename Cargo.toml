@@ -7,7 +7,7 @@ resolver = "2"
 
 [dependencies]
 docopt = "*"
-rust-htslib = ">=0.30"
+rust-htslib = "0.38"
 flate2 = { version = "1.0", features = ["zlib"], default-features = false }
 shardio = { git = "https://github.com/10XGenomics/rust-shardio.git" }
 bincode = "1"
