@@ -1,6 +1,6 @@
 // Copyright (c) 2020 10x Genomics, Inc. All rights reserved.
 
-extern crate csv;
+use csv;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
