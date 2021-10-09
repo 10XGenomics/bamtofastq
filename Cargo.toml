@@ -11,7 +11,7 @@ resolver = "2"
 
 [dependencies]
 docopt = "*"
-rust-htslib = { version = "0.38", default-features = false, features = ["bzip2", "lzma"] }
+rust-htslib = { version = "0.38", default-features = false, features = ["bzip2", "lzma", "libdeflate"] }
 flate2 = { version = "1.0", features = ["zlib"], default-features = false }
 shardio = "0.8.1"
 bincode = "1"
