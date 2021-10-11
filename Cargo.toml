@@ -9,9 +9,16 @@ edition = "2018"
 include = ["src/**/*", "LICENSE", "README.md"]
 resolver = "2"
 
+[features]
+default = ["bzip2", "lzma", "libdeflate"]
+bzip2 = ["rust-htslib/bzip2"]
+lzma = ["rust-htslib/lzma", "bzip2"]
+libdeflate = ["rust-htslib/libdeflate"]
+curl = ["rust-htslib/curl"]
+
 [dependencies]
 docopt = "*"
-rust-htslib = { version = "0.38", default-features = false, features = ["bzip2", "lzma", "libdeflate"] }
+rust-htslib = { version = "0.38", default-features = false }
 flate2 = { version = "1.0", features = ["zlib"], default-features = false }
 shardio = "0.8.1"
 bincode = "1"
