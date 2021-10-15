@@ -5,6 +5,7 @@ load(
 
 exports_files(
     [
+        ".cargo/config.toml",
         "Cargo.toml",
         "Cargo.lock",
     ],
@@ -13,7 +14,7 @@ exports_files(
 
 cargo_binary(
     name = "bamtofastq",
-    srcs = glob(["src/**"]) + [".cargo/config.toml"],
+    srcs = glob(["src/**"]),
     cargo_deps = "@bamtofastq_cargo_dependencies",
     visibility = ["//visibility:public"],
 )
