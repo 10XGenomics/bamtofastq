@@ -1167,6 +1167,21 @@ where
     I: Iterator<Item = Result<Record, E>>,
     Result<Record, E>: Context<Record, E>,
 {
+    // Use the same R1 formatter for single-end records as for paired-end records,
+    // and replace R2 with a single N.
+    let r2_spec = match formatter.r2_spec.as_slice() {
+        [SpecEntry::Read] => vec![SpecEntry::Ns(1)],
+        _ => {
+            return Err(anyhow!(
+                "Mixed singled-end and paired-end records in BAM file."
+            ))
+        }
+    };
+    let single_ended_formatter = FormatBamRecords {
+        r2_spec,
+        ..formatter.clone()
+    };
+
     // Temp file for hold unpaired reads. Will be cleaned up automatically.
     let tmp_file = NamedTempFile::new_in(&fq.out_path)?;
 
@@ -1186,6 +1201,14 @@ where
             let rec = _rec.context("IO Error reading BAM file. You BAM file may be corrupted.")?;
 
             if rec.is_secondary() || rec.is_supplementary() {
+                continue;
+            }
+
+            // Single-ended read.
+            if !rec.is_first_in_template() && !rec.is_last_in_template() {
+                total_read_pairs += 1;
+                let (rg, fq1, fq2, fq_i1, fq_i2) = single_ended_formatter.format_read(&rec)?;
+                fq.write(&rg, &fq1, &fq2, &fq_i1, &fq_i2);
                 continue;
             }
 
