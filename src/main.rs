@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::panic;
 use std::path::{Path, PathBuf};
+use std::str;
 use std::str::FromStr;
 
 use anyhow::{anyhow, Context, Error};
@@ -403,7 +404,7 @@ impl FormatBamRecords {
             }
             Ok(..) => panic!(
                 "invalid type of RG header. record: {}",
-                std::str::from_utf8(rec.qname()).unwrap()
+                str::from_utf8(rec.qname()).unwrap()
             ),
             Err(_) => None,
         }
@@ -516,12 +517,12 @@ impl FormatBamRecords {
                 let e = anyhow!(
                     "BAM record missing tag: {:?} on read {:?}. You do not appear to have an original 10x BAM file.\nIf you downloaded this BAM file from SRA, you likely need to download the 'Original Format' version of the BAM available for most 10x datasets.",
                     tag,
-                    std::str::from_utf8(rec.qname()).unwrap()
+                    str::from_utf8(rec.qname()).unwrap()
                 );
                 return Err(e);
             }
             Ok(tag_val) => {
-                let e = anyhow!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}.\n You do not appear to have the original 10x BAM file. If you downloaded this BAM file from SRA, you likely need to download the 'Original Format' version of the BAM available for most 10x datasets.", std::str::from_utf8(rec.qname()).unwrap(), tag, tag_val);
+                let e = anyhow!("Invalid BAM record: read: {:?} unexpected tag type. Expected string for {:?}, got {:?}.\n You do not appear to have the original 10x BAM file. If you downloaded this BAM file from SRA, you likely need to download the 'Original Format' version of the BAM available for most 10x datasets.", str::from_utf8(rec.qname()).unwrap(), tag, tag_val);
                 return Err(e);
             }
         }
@@ -1189,8 +1190,21 @@ where
                 continue;
             }
 
-            if rec.is_first_in_template() {
-                total_read_pairs += 1;
+            match (rec.is_first_in_template(), rec.is_last_in_template()) {
+                (false, false) => {
+                    return Err(anyhow!(
+                        "Unexpected single-end read: {}",
+                        str::from_utf8(rec.qname()).unwrap()
+                    ))
+                }
+                (true, true) => {
+                    return Err(anyhow!(
+                        "Read has both READ1 and READ2 flags set: {}",
+                        str::from_utf8(rec.qname()).unwrap()
+                    ))
+                }
+                (true, false) => total_read_pairs += 1,
+                (false, true) => (),
             }
 
             // Save our current location
@@ -1237,7 +1251,7 @@ where
 
         // We're missing a read in the pair, and we would expect it.
         if item_vec.len() != 2 && !restricted_locus {
-            let header = std::str::from_utf8(&item_vec[0].rec.head).unwrap();
+            let header = str::from_utf8(&item_vec[0].rec.head).unwrap();
             if !relaxed {
                 let msg = anyhow!("Didn't find both records for a paired end read. Is your BAM file complete?\nRead name of unpaired record: {}", header);
                 return Err(msg);
