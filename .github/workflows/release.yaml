@@ -19,8 +19,19 @@ jobs:
       - name: Make release build
         run: >
           docker run -v ${{github.workspace}}:/root
-          quay.io/pypa/manylinux2014_x86_64:latest
+          centos:centos7
           /bin/bash -leuxc '
+          yum -y reinstall glibc-common;
+          yum -y install centos-release-scl-rh;
+          yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm;
+          yum -y install devtoolset-10-binutils devtoolset-10-gcc cmake3;
+          alternatives --install /usr/local/bin/cmake cmake /usr/bin/cmake3 20 \
+              --slave /usr/local/bin/ctest ctest /usr/bin/ctest3 \
+              --slave /usr/local/bin/cpack cpack /usr/bin/cpack3 \
+              --slave /usr/local/bin/ccmake ccmake /usr/bin/ccmake3 \
+              --family cmake;
+          export PATH=$PATH:/opt/rh/devtoolset-10/root/bin;
+
           curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable;
           source $HOME/.cargo/env;
           cd /root;
