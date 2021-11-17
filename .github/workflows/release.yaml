@@ -1,0 +1,112 @@
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+name: Build and Upload Release
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout git repository
+        uses: actions/checkout@master
+      - name: Make release build
+        run: >
+          docker run -v ${{github.workspace}}:/root
+          centos:centos7
+          /bin/bash -leuxc '
+          yum -y reinstall glibc-common;
+          yum -y install centos-release-scl-rh;
+          yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm;
+          yum -y install devtoolset-10-binutils devtoolset-10-gcc cmake3;
+          alternatives --install /usr/local/bin/cmake cmake /usr/bin/cmake3 20 \
+              --slave /usr/local/bin/ctest ctest /usr/bin/ctest3 \
+              --slave /usr/local/bin/cpack cpack /usr/bin/cpack3 \
+              --slave /usr/local/bin/ccmake ccmake /usr/bin/ccmake3 \
+              --family cmake;
+          export PATH=$PATH:/opt/rh/devtoolset-10/root/bin;
+
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable;
+          source $HOME/.cargo/env;
+          cd /root;
+          cargo build --release;
+          target/release/bamtofastq --help | grep -q Usage;
+          readelf -V target/release/bamtofastq;
+          ldd target/release/bamtofastq;
+          ';
+          mkdir ${{runner.temp}}/artifacts;
+          cp -a target/release/bamtofastq ${{runner.temp}}/artifacts/bamtofastq-linux
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v1
+        with:
+          name: bamtofastq
+          path: ${{runner.temp}}/artifacts
+  macos:
+    runs-on: macos-10.15
+    env:
+      MACOSX_DEPLOYMENT_TARGET: 10.9
+    steps:
+      - name: Checkout git repository
+        uses: actions/checkout@master
+      - name: Make release build
+        run: |
+          cargo build --release
+          target/release/bamtofastq --help | grep -q Usage
+          otool -L target/release/bamtofastq
+          mkdir ${{runner.temp}}/artifacts
+          cp -a target/release/bamtofastq ${{runner.temp}}/artifacts/bamtofastq-macos
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v1
+        with:
+          name: bamtofastq
+          path: ${{runner.temp}}/artifacts
+
+  setup-release:
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v1
+        with:
+          name: bamtofastq
+          path: ${{runner.temp}}/artifacts
+
+      - run: ls ${{runner.temp}}/artifacts
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        with:
+          tag_name: ${{github.ref}}
+          release_name: Release ${{github.ref}}
+          draft: false
+          prerelease: false
+
+      - name: Upload Linux
+        id: upload-linux-release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{runner.temp}}/artifacts/bamtofastq-linux
+          asset_name: bamtofastq_linux
+          asset_content_type: application/octet-stream
+
+      - name: Upload Mac
+        id: upload-mac-release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{runner.temp}}/artifacts/bamtofastq-macos
+          asset_name: bamtofastq_macos
+          asset_content_type: application/octet-stream
