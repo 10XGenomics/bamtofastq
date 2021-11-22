@@ -731,9 +731,9 @@ dependencies = [
 
 [[package]]
 name = "shardio"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8496139ffe2b2dafa0ecaec339bb6d6a760c70781d1d5977e33de638ce80ca2"
+checksum = "669590a22936d55698744e4096bc46fc8f935f492fe86b2f09cbdbb6d937b65a"
 dependencies = [
  "anyhow",
  "bincode",
