@@ -64,7 +64,7 @@ impl BxIndex {
 pub fn get_records_for_bx<R: Read>(
     index: &BxIndex,
     reader: &mut R,
-    bx: &String,
+    bx: &str,
 ) -> Result<Vec<Record>, Error> {
     let start = index.get_voffset(bx);
     reader.seek(start as i64)?;
@@ -78,9 +78,9 @@ pub fn get_records_for_bx<R: Read>(
             _ => "".to_string(),
         };
 
-        if &bx_read == bx {
+        if bx_read == bx {
             recs.push(rec);
-        } else if &bx_read < bx {
+        } else if bx_read.as_str() < bx {
             continue;
         } else {
             break;
@@ -150,9 +150,8 @@ impl<R: Read> Iterator for BxListIter<R> {
                 self.cur_vec.reverse();
             }
 
-            match self.cur_vec.pop() {
-                Some(v) => return Some(Ok(v)),
-                None => (),
+            if let Some(v) = self.cur_vec.pop() {
+                return Some(Ok(v));
             }
         }
 
