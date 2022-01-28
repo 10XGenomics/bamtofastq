@@ -54,6 +54,8 @@ jobs:
     steps:
       - name: Checkout git repository
         uses: actions/checkout@master
+      - name: rust version
+        run: rustup default 1.58.1
       - name: Make release build
         run: |
           cargo build --release
