@@ -646,7 +646,7 @@ impl FormatBamRecords {
     }
 }
 
-type BGW = ThreadProxyWriter<BufWriter<GzEncoder<File>>>;
+type Bgw = ThreadProxyWriter<BufWriter<GzEncoder<File>>>;
 
 struct FastqManager {
     writers: HashMap<Rg, FastqWriter>,
@@ -724,10 +724,10 @@ struct FastqWriter {
     sample_name: String,
     lane: u32,
 
-    r1: Option<BGW>,
-    r2: Option<BGW>,
-    i1: Option<BGW>,
-    i2: Option<BGW>,
+    r1: Option<Bgw>,
+    r2: Option<Bgw>,
+    i1: Option<Bgw>,
+    i2: Option<Bgw>,
 
     chunk_written: usize,
     total_written: usize,
@@ -858,7 +858,7 @@ impl FastqWriter {
         }
     }
 
-    pub fn write_rec(w: &mut BGW, rec: &FqRecord) -> Result<(), Error> {
+    pub fn write_rec(w: &mut Bgw, rec: &FqRecord) -> Result<(), Error> {
         w.write_all(b"@")?;
         w.write_all(&rec.head)?;
         w.write_all(b"\n")?;
@@ -870,7 +870,7 @@ impl FastqWriter {
         Ok(())
     }
 
-    pub fn try_write_rec(w: &mut Option<BGW>, rec: &Option<FqRecord>) -> Result<(), Error> {
+    pub fn try_write_rec(w: &mut Option<Bgw>, rec: &Option<FqRecord>) -> Result<(), Error> {
         if let Some(ref mut w) = w {
             if let Some(r) = rec {
                 FastqWriter::write_rec(w, r)?;
@@ -882,7 +882,7 @@ impl FastqWriter {
         Ok(())
     }
 
-    pub fn try_write_rec2(w: &mut Option<BGW>, rec: &FqRecord) -> Result<(), Error> {
+    pub fn try_write_rec2(w: &mut Option<Bgw>, rec: &FqRecord) -> Result<(), Error> {
         if let Some(ref mut w) = w {
             FastqWriter::write_rec(w, rec)?;
         };
@@ -1297,8 +1297,8 @@ mod tests {
 
     type ReadSet = HashMap<Vec<u8>, RawReadSet>;
 
-    fn strip_extra_headers(header: &Vec<u8>) -> Vec<u8> {
-        let head_str = String::from_utf8(header.clone()).unwrap();
+    fn strip_extra_headers(header: &[u8]) -> Vec<u8> {
+        let head_str = String::from_utf8(header.to_owned()).unwrap();
         let mut split = head_str.split_whitespace();
         split.next().unwrap().to_string().into_bytes()
     }
@@ -1378,7 +1378,7 @@ mod tests {
         assert_eq!(v1.2, v2.2)
     }
 
-    pub fn compare_bytes_ignore_n(v1: &Vec<u8>, v2: &Vec<u8>) {
+    pub fn compare_bytes_ignore_n(v1: &[u8], v2: &[u8]) {
         assert_eq!(v1.len(), v2.len());
         for (idx, (b1, b2)) in v1.iter().zip(v2).enumerate() {
             if idx >= 16 && b1 != b2 && *b2 != b'N' && *b2 != b'J' {
