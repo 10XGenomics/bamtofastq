@@ -14,10 +14,12 @@ jobs:
     # This job runs on MacOS Catalina
     runs-on: macos-latest
     steps:
-      - name: rust version
-        run: rustup default 1.58.1
-      - name: add rustfmt 
-        run: rustup component add rustfmt
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.58.1
+          components: rustfmt
+          default: true
       - name: Checkout bamtofastq master
         uses: actions/checkout@master
       - name: Check Rust formatting
@@ -31,10 +33,12 @@ jobs:
     # This job runs on Linux
     runs-on: ubuntu-latest
     steps:
-      - name: rust version
-        run: rustup default 1.58.1
-      - name: add rustfmt
-        run: rustup component add rustfmt clippy
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.58.1
+          components: rustfmt, clippy
+          default: true
       - name: Checkout bamtofastq master
         uses: actions/checkout@master
       - name: Check Rust formatting

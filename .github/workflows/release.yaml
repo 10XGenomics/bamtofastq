@@ -54,8 +54,11 @@ jobs:
     steps:
       - name: Checkout git repository
         uses: actions/checkout@master
-      - name: rust version
-        run: rustup default 1.58.1
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.58.1
+          default: true
       - name: Make release build
         run: |
           cargo build --release
