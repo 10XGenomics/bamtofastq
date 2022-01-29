@@ -350,31 +350,33 @@ impl FormatBamRecords {
         // @CO	10x_bam_to_fastq:R1(RX:QX,TR:TQ,SEQ:QUAL)
         let re = Regex::new(r"@CO\t10x_bam_to_fastq:(\S+)\((\S+)\)").unwrap();
         let text = String::from_utf8(Vec::from(reader.header().as_bytes())).unwrap();
-        let mut spec = HashMap::new();
 
-        for l in text.lines() {
-            if let Some(c) = re.captures(l) {
-                let mut read_spec = Vec::new();
+        text.lines()
+            .into_iter()
+            .filter_map(|l| {
+                re.captures(l).map(|c| {
+                    let read = c.get(1).unwrap().as_str().to_string();
+                    let tag_list = c.get(2).unwrap().as_str();
 
-                let read = c.get(1).unwrap().as_str().to_string();
-                let tag_list = c.get(2).unwrap().as_str();
-                let spec_elems = tag_list.split(',');
-                for el in spec_elems {
-                    if el == "SEQ:QUAL" {
-                        read_spec.push(SpecEntry::Read)
-                    } else {
-                        let mut parts = el.split(':');
-                        let rtag = parts.next().unwrap().to_string();
-                        let qtag = parts.next().unwrap().to_string();
-                        read_spec.push(SpecEntry::Tags(rtag, qtag));
-                    }
-                }
+                    let spec_entries = tag_list
+                        .split(',')
+                        .into_iter()
+                        .map(|el| {
+                            if el == "SEQ:QUAL" {
+                                SpecEntry::Read
+                            } else {
+                                let mut parts = el.split(':');
+                                let rtag = parts.next().unwrap().to_string();
+                                let qtag = parts.next().unwrap().to_string();
+                                SpecEntry::Tags(rtag, qtag)
+                            }
+                        })
+                        .collect();
 
-                spec.insert(read, read_spec);
-            }
-        }
-
-        spec
+                    (read, spec_entries)
+                })
+            })
+            .collect()
     }
 
     // Example header line:
