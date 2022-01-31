@@ -1,6 +1,6 @@
 [package]
 name = "bamtofastq"
-version = "1.4.0"
+version = "1.4.1"
 authors = ["Patrick Marks <patrick@10xgenomics.com>"]
 license = "MIT"
 repository = "https://github.com/10XGenomics/bamtofastq.git"

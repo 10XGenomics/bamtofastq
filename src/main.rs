@@ -96,6 +96,18 @@ have RG headers, we will set up files for 20 gem groups, and use the gem-group s
 determine the Gem group.  Reads without a CB tag will get dropped.
 */
 
+// (r1, r2, i1, i2)
+type OutPaths = (PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>);
+
+// (rg, fq1, fq2, fq_i1, fq_i2)
+type FormattedReadPair = (
+    Option<Rg>,
+    FqRecord,
+    FqRecord,
+    Option<FqRecord>,
+    Option<FqRecord>,
+);
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Args {
     arg_bam: String,
@@ -270,11 +282,8 @@ impl FormatBamRecords {
         for l in text.lines() {
             if l.starts_with("@RG") {
                 let r = Self::parse_rg_line(l);
-                match r {
-                    Some((id, rg, lane)) => {
-                        rg_items.insert(id, (rg, lane));
-                    }
-                    None => (),
+                if let Some((id, rg, lane)) = r {
+                    rg_items.insert(id, (rg, lane));
                 };
             }
         }
@@ -324,13 +333,10 @@ impl FormatBamRecords {
                     let re = Regex::new(r"^([0-9]+)-[0-9A-F]+$").unwrap();
                     let cap = re.captures(lane);
 
-                    if cap.is_none() {
-                        None
-                    } else {
-                        let lane_u32 =
-                            u32::from_str(cap.unwrap().get(1).unwrap().as_str()).unwrap();
-                        Some((v.clone(), rg, lane_u32))
-                    }
+                    cap.map(|capture| {
+                        let lane_u32 = u32::from_str(capture.get(1).unwrap().as_str()).unwrap();
+                        (v.clone(), rg, lane_u32)
+                    })
                 }
             }
         } else {
@@ -344,34 +350,32 @@ impl FormatBamRecords {
         // @CO	10x_bam_to_fastq:R1(RX:QX,TR:TQ,SEQ:QUAL)
         let re = Regex::new(r"@CO\t10x_bam_to_fastq:(\S+)\((\S+)\)").unwrap();
         let text = String::from_utf8(Vec::from(reader.header().as_bytes())).unwrap();
-        let mut spec = HashMap::new();
 
-        for l in text.lines() {
-            match re.captures(l) {
-                Some(c) => {
-                    let mut read_spec = Vec::new();
-
+        text.lines()
+            .into_iter()
+            .filter_map(|l| {
+                re.captures(l).map(|c| {
                     let read = c.get(1).unwrap().as_str().to_string();
                     let tag_list = c.get(2).unwrap().as_str();
-                    let spec_elems = tag_list.split(',');
-                    for el in spec_elems {
-                        if el == "SEQ:QUAL" {
-                            read_spec.push(SpecEntry::Read)
-                        } else {
-                            let mut parts = el.split(':');
-                            let rtag = parts.next().unwrap().to_string();
-                            let qtag = parts.next().unwrap().to_string();
-                            read_spec.push(SpecEntry::Tags(rtag, qtag));
-                        }
-                    }
 
-                    spec.insert(read, read_spec);
-                }
-                None => (),
-            }
-        }
+                    let spec_entries = tag_list
+                        .split(',')
+                        .into_iter()
+                        .map(|el| {
+                            if el == "SEQ:QUAL" {
+                                SpecEntry::Read
+                            } else {
+                                let (rtag, qtag) =
+                                    el.split(':').map(ToString::to_string).next_tuple().unwrap();
+                                SpecEntry::Tags(rtag, qtag)
+                            }
+                        })
+                        .collect();
 
-        spec
+                    (read, spec_entries)
+                })
+            })
+            .collect()
     }
 
     // Example header line:
@@ -437,16 +441,14 @@ impl FormatBamRecords {
 
             // Workaround for early CR 1.1 and 1.2 data
             // Attempt to extract the gem group out of the corrected barcode tag (CB)
-            match rec.aux(b"CB") {
-                Ok(Aux::String(s)) => return emit(s),
-                _ => (),
+            if let Ok(Aux::String(s)) = rec.aux(b"CB") {
+                return emit(s);
             }
 
             // Workaround for GemCode (Long Ranger 1.3) data
             // Attempt to extract the gem group out of the corrected barcode tag (BX)
-            match rec.aux(b"BX") {
-                Ok(Aux::String(s)) => return emit(s),
-                _ => (),
+            if let Ok(Aux::String(s)) = rec.aux(b"BX") {
+                return emit(s);
             }
 
             None
@@ -550,22 +552,22 @@ impl FormatBamRecords {
             // It OK for the final tag in the spec to be missing from the read
             let last_item = idx == spec.len() - 1;
 
-            match item {
+            match *item {
                 // Data from a tag
-                &SpecEntry::Tags(ref read_tag, ref qv_tag) => {
+                SpecEntry::Tags(ref read_tag, ref qv_tag) => {
                     Self::fetch_tag(rec, read_tag, last_item, &mut read)?;
                     Self::fetch_tag(rec, qv_tag, last_item, &mut qv)?;
                 }
 
                 // Just hardcode some Ns -- for cases where we didn't retain the required data
-                &SpecEntry::Ns(len) => {
+                SpecEntry::Ns(len) => {
                     for _ in 0..len {
                         read.push(b'N');
                         qv.push(b'J');
                     }
                 }
 
-                &SpecEntry::Read => {
+                SpecEntry::Read => {
                     // The underlying read
                     let mut seq = rec.seq().as_bytes();
                     let mut qual: Vec<u8> = rec.qual().iter().map(|x| x + 33).collect();
@@ -598,16 +600,7 @@ impl FormatBamRecords {
         &self,
         r1_rec: &Record,
         r2_rec: &Record,
-    ) -> Result<
-        (
-            Option<Rg>,
-            FqRecord,
-            FqRecord,
-            Option<FqRecord>,
-            Option<FqRecord>,
-        ),
-        Error,
-    > {
+    ) -> Result<FormattedReadPair, Error> {
         let r1 = self.bam_rec_to_fq(r1_rec, &self.r1_spec, self.order[0])?;
         let r2 = self.bam_rec_to_fq(r2_rec, &self.r2_spec, self.order[1])?;
 
@@ -627,19 +620,7 @@ impl FormatBamRecords {
         Ok((rg, r1, r2, i1, i2))
     }
 
-    pub fn format_read(
-        &self,
-        rec: &Record,
-    ) -> Result<
-        (
-            Option<Rg>,
-            FqRecord,
-            FqRecord,
-            Option<FqRecord>,
-            Option<FqRecord>,
-        ),
-        Error,
-    > {
+    pub fn format_read(&self, rec: &Record) -> Result<FormattedReadPair, Error> {
         let r1 = self.bam_rec_to_fq(rec, &self.r1_spec, self.order[0])?;
         let r2 = self.bam_rec_to_fq(rec, &self.r2_spec, self.order[1])?;
 
@@ -666,7 +647,7 @@ impl FormatBamRecords {
     }
 }
 
-type BGW = ThreadProxyWriter<BufWriter<GzEncoder<File>>>;
+type Bgw = ThreadProxyWriter<BufWriter<GzEncoder<File>>>;
 
 struct FastqManager {
     writers: HashMap<Rg, FastqWriter>,
@@ -717,11 +698,8 @@ impl FastqManager {
         i1: &Option<FqRecord>,
         i2: &Option<FqRecord>,
     ) {
-        match rg {
-            &Some(ref rg) => {
-                self.writers.get_mut(rg).map(|w| w.write(r1, r2, i1, i2));
-            }
-            _ => (),
+        if let &Some(ref rg) = rg {
+            self.writers.get_mut(rg).map(|w| w.write(r1, r2, i1, i2));
         }
     }
 
@@ -747,10 +725,10 @@ struct FastqWriter {
     sample_name: String,
     lane: u32,
 
-    r1: Option<BGW>,
-    r2: Option<BGW>,
-    i1: Option<BGW>,
-    i2: Option<BGW>,
+    r1: Option<Bgw>,
+    r2: Option<Bgw>,
+    i1: Option<Bgw>,
+    i2: Option<Bgw>,
 
     chunk_written: usize,
     total_written: usize,
@@ -881,7 +859,7 @@ impl FastqWriter {
         }
     }
 
-    pub fn write_rec(w: &mut BGW, rec: &FqRecord) -> Result<(), Error> {
+    pub fn write_rec(w: &mut Bgw, rec: &FqRecord) -> Result<(), Error> {
         w.write_all(b"@")?;
         w.write_all(&rec.head)?;
         w.write_all(b"\n")?;
@@ -893,7 +871,7 @@ impl FastqWriter {
         Ok(())
     }
 
-    pub fn try_write_rec(w: &mut Option<BGW>, rec: &Option<FqRecord>) -> Result<(), Error> {
+    pub fn try_write_rec(w: &mut Option<Bgw>, rec: &Option<FqRecord>) -> Result<(), Error> {
         if let Some(ref mut w) = w {
             if let Some(r) = rec {
                 FastqWriter::write_rec(w, r)?;
@@ -905,7 +883,7 @@ impl FastqWriter {
         Ok(())
     }
 
-    pub fn try_write_rec2(w: &mut Option<BGW>, rec: &FqRecord) -> Result<(), Error> {
+    pub fn try_write_rec2(w: &mut Option<Bgw>, rec: &FqRecord) -> Result<(), Error> {
         if let Some(ref mut w) = w {
             FastqWriter::write_rec(w, rec)?;
         };
@@ -1019,10 +997,7 @@ fn set_panic_handler() {
     }));
 }
 
-pub fn go(
-    args: Args,
-    cache_size: Option<usize>,
-) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
+pub fn go(args: Args, cache_size: Option<usize>) -> Result<Vec<OutPaths>, Error> {
     let cache_size = cache_size.unwrap_or(500000);
 
     let path = std::path::PathBuf::from(args.arg_bam.clone());
@@ -1057,7 +1032,7 @@ pub fn inner<R: bam::Read>(
     args: Args,
     cache_size: usize,
     mut bam: R,
-) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error> {
+) -> Result<Vec<OutPaths>, Error> {
     bam.set_threads(args.flag_nthreads)?;
 
     let formatter = {
@@ -1163,7 +1138,7 @@ fn proc_double_ended<I, E>(
     cache_size: usize,
     restricted_locus: bool,
     relaxed: bool,
-) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error>
+) -> Result<Vec<OutPaths>, Error>
 where
     I: Iterator<Item = Result<Record, E>>,
     Result<Record, E>: Context<Record, E>,
@@ -1211,13 +1186,9 @@ where
             let tid = rec.tid();
             let pos = rec.pos();
 
-            match rp_cache.cache_rec(rec) {
-                Some((r1, r2)) => {
-                    let (rg, fq1, fq2, fq_i1, fq_i2) =
-                        formatter.format_read_pair(&r1, &r2).unwrap();
-                    fq.write(&rg, &fq1, &fq2, &fq_i1, &fq_i2);
-                }
-                None => (),
+            if let Some((r1, r2)) = rp_cache.cache_rec(rec) {
+                let (rg, fq1, fq2, fq_i1, fq_i2) = formatter.format_read_pair(&r1, &r2).unwrap();
+                fq.write(&rg, &fq1, &fq2, &fq_i1, &fq_i2);
             }
 
             // If cache gets too big, clear out stragglers & serialize for later
@@ -1286,7 +1257,7 @@ fn proc_single_ended<I>(
     records: I,
     formatter: FormatBamRecords,
     mut fq: FastqManager,
-) -> Result<Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)>, Error>
+) -> Result<Vec<OutPaths>, Error>
 where
     I: Iterator<Item = Result<Record, rust_htslib::errors::Error>>,
 {
@@ -1327,8 +1298,8 @@ mod tests {
 
     type ReadSet = HashMap<Vec<u8>, RawReadSet>;
 
-    fn strip_extra_headers(header: &Vec<u8>) -> Vec<u8> {
-        let head_str = String::from_utf8(header.clone()).unwrap();
+    fn strip_extra_headers(header: &[u8]) -> Vec<u8> {
+        let head_str = String::from_utf8(header.to_owned()).unwrap();
         let mut split = head_str.split_whitespace();
         split.next().unwrap().to_string().into_bytes()
     }
@@ -1408,7 +1379,7 @@ mod tests {
         assert_eq!(v1.2, v2.2)
     }
 
-    pub fn compare_bytes_ignore_n(v1: &Vec<u8>, v2: &Vec<u8>) {
+    pub fn compare_bytes_ignore_n(v1: &[u8], v2: &[u8]) {
         assert_eq!(v1.len(), v2.len());
         for (idx, (b1, b2)) in v1.iter().zip(v2).enumerate() {
             if idx >= 16 && b1 != b2 && *b2 != b'N' && *b2 != b'J' {
