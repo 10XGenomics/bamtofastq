@@ -365,9 +365,8 @@ impl FormatBamRecords {
                             if el == "SEQ:QUAL" {
                                 SpecEntry::Read
                             } else {
-                                let mut parts = el.split(':');
-                                let rtag = parts.next().unwrap().to_string();
-                                let qtag = parts.next().unwrap().to_string();
+                                let (rtag, qtag) =
+                                    el.split(':').map(ToString::to_string).next_tuple().unwrap();
                                 SpecEntry::Tags(rtag, qtag)
                             }
                         })
