@@ -80,3 +80,22 @@ in the BAM file.
 
 * Multi-Gem Group BAM files created by Cell Ranger 1.2 and earlier do not carry Read Group tags, so reads from different GEM groups cannot be distinguished.
 * 'Unaligned' BAM files created by the BASIC pipeline in Long Ranger versions prior to 2.1.3, due to missing R1/R2 flags.
+
+## Maintenance
+
+### Releasing a new version
+
+To create a new release, the recommended steps are:
+
+1. Bump the version in `Cargo.toml`, and run `cargo check` to update the `Cargo.lock` file.
+2. Commit the changes (ideally in a new PR).
+3. When changes are in the `master` branch, go to the [releases] page and click on ["Draft a new release"].
+4. Enter the new version (or choose an existing tag) on the "Choose a tag" dropdown menu. Follow the `vX.Y.Z` tag format.
+5. Click on "Auto-generate release notes" to populate the release description. Review and make any changes (like limiting the number of `dependabot` changes to 1 line).
+6. Click on the "Publish release" button.
+
+Once the release is created there is an automated workflow for [publishing binaries] for Linux and macOS on new releases.
+
+[publishing binaries]: https://github.com/10XGenomics/bamtofastq/blob/master/.github/workflows/release.yaml
+[releases]: https://github.com/10XGenomics/bamtofastq/releases
+["Draft a new release"]: https://github.com/10XGenomics/bamtofastq/releases/new

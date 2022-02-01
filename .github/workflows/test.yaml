@@ -25,7 +25,7 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt -- --check
       - name: build-bamtofastq
-        run: cargo build --release
+        run: cargo build --release --locked
       - name: unit tests
         run: cargo test --release -- --nocapture 
 
@@ -62,6 +62,6 @@ jobs:
             -W rust_2021_compatibility
             -W unused
       - name: build-bamtofastq
-        run: cargo build --release
+        run: cargo build --release --locked
       - name: unit tests
         run: cargo test --release -- --nocapture
