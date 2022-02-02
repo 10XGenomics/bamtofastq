@@ -23,8 +23,6 @@ notice = "warn"
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
 ignore = [
-    "RUSTSEC-2019-0036",  # TODO: stop using failure.
-    "RUSTSEC-2020-0036",  # TODO: stop using failure.
 ]
 
 # This section is considered when running `cargo deny check licenses`
@@ -42,7 +40,7 @@ allow = [
     "Zlib",
 ]
 # Lint level for licenses considered copyleft
-copyleft = "warn"
+copyleft = "deny"
 # Lint level used when no other predicates are matched
 default = "deny"
 # The confidence threshold for detecting a license from license text.
