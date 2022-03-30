@@ -214,8 +214,8 @@ impl FormatBamRecords {
                 rg_spec: rgs,
                 r1_spec: spec.remove("R1").unwrap(),
                 r2_spec: spec.remove("R2").unwrap(),
-                i1_spec: spec.remove("I1").unwrap_or_else(Vec::new),
-                i2_spec: spec.remove("I2").unwrap_or_else(Vec::new),
+                i1_spec: spec.remove("I1").unwrap_or_default(),
+                i2_spec: spec.remove("I2").unwrap_or_default(),
                 rename: seq_names,
                 order: [1, 3, 2, 4],
             })
@@ -668,7 +668,7 @@ impl FastqManager {
         for (_, &(ref _samp, lane)) in formatter.rg_spec.iter() {
             let samp = _samp.clone();
             let path = sample_def_paths.entry(samp).or_insert_with(|| {
-                let suffix = _samp.replace(":", "_");
+                let suffix = _samp.replace(':', "_");
 
                 //create_dir(&samp_path).expect("couldn't create output directory");
                 out_path.join(suffix)

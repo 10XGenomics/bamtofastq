@@ -21,7 +21,7 @@ impl fmt::Display for Locus {
 
 fn remove_commas(s: &str) -> String {
     let ss = s.to_string();
-    ss.replace(",", "")
+    ss.replace(',', "")
 }
 
 impl FromStr for Locus {
