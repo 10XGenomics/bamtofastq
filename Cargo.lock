@@ -67,6 +67,7 @@ dependencies = [
  "docopt",
  "flate2",
  "itertools",
+ "libz-sys",
  "regex",
  "rust-htslib",
  "serde",
