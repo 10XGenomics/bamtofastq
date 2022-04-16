@@ -705,7 +705,10 @@ impl FastqManager {
     }
 
     pub fn paths(&self) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
-        self.writers.iter().flat_map(|(_, w)| w.path_sets.clone()).collect()
+        self.writers
+            .iter()
+            .flat_map(|(_, w)| w.path_sets.clone())
+            .collect()
     }
 }
 
