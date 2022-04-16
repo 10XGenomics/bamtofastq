@@ -41,7 +41,7 @@ jobs:
           mkdir ${{runner.temp}}/artifacts;
           cp -a target/release/bamtofastq ${{runner.temp}}/artifacts/bamtofastq_linux
       - name: Upload build artifact
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v3
         with:
           name: bamtofastq
           path: ${{runner.temp}}/artifacts
@@ -75,7 +75,7 @@ jobs:
           mkdir ${{runner.temp}}/artifacts
           cp -a target/release/bamtofastq ${{runner.temp}}/artifacts/bamtofastq_macos
       - name: Upload build artifact
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v3
         with:
           name: bamtofastq
           path: ${{runner.temp}}/artifacts
