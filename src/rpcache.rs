@@ -73,6 +73,7 @@ impl RpCache {
                 }
             }
 
+            orphans.reserve(orphan_keys.len());
             for k in orphan_keys {
                 let rec = self.cache.remove(&k).unwrap();
                 orphans.push(rec);
@@ -83,6 +84,7 @@ impl RpCache {
 
         // Cache got too full -- just clear it
         if dist <= 100 {
+            orphans.reserve_exact(self.cache.len());
             for (_, rec) in self.cache.drain() {
                 orphans.push(rec)
             }

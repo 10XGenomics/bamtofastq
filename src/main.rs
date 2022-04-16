@@ -388,11 +388,8 @@ impl FormatBamRecords {
 
         for l in text.lines() {
             if let Some(c) = re.captures(l) {
-                let mut seq_names = Vec::new();
                 let names = c.get(1).unwrap().as_str().split(',');
-                for name in names {
-                    seq_names.push(name.to_string());
-                }
+                let seq_names = names.into_iter().map(|s| s.to_string()).collect();
                 return Some(seq_names);
             }
         }
@@ -708,13 +705,7 @@ impl FastqManager {
     }
 
     pub fn paths(&self) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
-        let mut r = Vec::new();
-
-        for (_, w) in self.writers.iter() {
-            r.extend(w.path_sets.clone());
-        }
-
-        r
+        self.writers.iter().flat_map(|(_, w)| w.path_sets.clone()).collect()
     }
 }
 
