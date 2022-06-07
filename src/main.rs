@@ -389,7 +389,10 @@ impl FormatBamRecords {
         for l in text.lines() {
             if let Some(c) = re.captures(l) {
                 let names = c.get(1).unwrap().as_str().split(',');
-                let seq_names = names.into_iter().map(|s| s.to_string()).collect();
+                let seq_names = names
+                    .into_iter()
+                    .map(std::string::ToString::to_string)
+                    .collect();
                 return Some(seq_names);
             }
         }

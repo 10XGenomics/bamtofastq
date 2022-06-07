@@ -17,7 +17,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.60.0
+          toolchain: 1.61.0
           components: rustfmt
           default: true
       - name: Checkout bamtofastq master
@@ -36,7 +36,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.60.0
+          toolchain: 1.61.0
           components: rustfmt, clippy
           default: true
       - name: Checkout bamtofastq master
