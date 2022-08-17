@@ -276,17 +276,13 @@ impl FormatBamRecords {
     }
 
     fn parse_rgs<R: bam::Read>(reader: &R) -> HashMap<String, Rg> {
-        let text = String::from_utf8(Vec::from(reader.header().as_bytes())).unwrap();
-        let mut rg_items = HashMap::new();
+        let text = std::str::from_utf8(reader.header().as_bytes()).unwrap();
 
-        for l in text.lines() {
-            if l.starts_with("@RG") {
-                let r = Self::parse_rg_line(l);
-                if let Some((id, rg, lane)) = r {
-                    rg_items.insert(id, (rg, lane));
-                };
-            }
-        }
+        let mut rg_items = text
+            .lines()
+            .filter(|l| l.starts_with("@RG"))
+            .filter_map(Self::parse_rg_line)
+            .collect::<HashMap<_, _>>();
 
         if rg_items.is_empty() {
             println!("WARNING: no @RG (read group) headers found in BAM file. Splitting data by the GEM well marked in the corrected barcode tag.");
@@ -302,45 +298,27 @@ impl FormatBamRecords {
         rg_items
     }
 
-    fn parse_rg_line(line: &str) -> Option<(String, String, u32)> {
+    fn parse_rg_line(line: &str) -> Option<(String, (String, u32))> {
         let mut entries = line.split('\t');
-        let _ = entries.next(); // consume @RG entry
+        entries.next()?; // consume @RG entry
 
-        let mut tags = HashMap::new();
-        for entry in entries {
-            let mut parts = entry.splitn(2, ':');
-            let tag = parts.next().unwrap();
-            let val = parts.next().unwrap();
-            tags.insert(tag.to_string(), val.to_string());
-        }
+        let mut tags = entries
+            .map(|entry| entry.split_once(':').unwrap())
+            .collect::<HashMap<_, _>>();
 
-        if tags.contains_key("ID") {
-            let v = tags.remove("ID").unwrap();
+        let v = tags.remove("ID")?;
+        let (rg, lane) = v.rsplit_once(':')?;
 
-            let vv = &v;
-            let mut parts = vv.rsplitn(2, ':');
-            let lane = parts.next().unwrap();
-            let rg = match parts.next() {
-                Some(v) => v.to_string(),
-                None => return None,
-            };
-
-            match u32::from_str(lane) {
-                Ok(n) => Some((v.clone(), rg, n)),
-                Err(_) => {
-                    // Handle case in ALIGNER pipeline prior to 2.1.3 -- samtools merge would append a unique identifier to each RG ID tags
-                    // Detect this condition and remove from lane
-                    let re = Regex::new(r"^([0-9]+)-[0-9A-F]+$").unwrap();
-                    let cap = re.captures(lane);
-
-                    cap.map(|capture| {
-                        let lane_u32 = u32::from_str(capture.get(1).unwrap().as_str()).unwrap();
-                        (v.clone(), rg, lane_u32)
-                    })
-                }
+        match u32::from_str(lane) {
+            Ok(n) => Some((v.to_string(), (rg.to_string(), n))),
+            Err(_) => {
+                // Handle case in ALIGNER pipeline prior to 2.1.3 -- samtools merge would append a unique identifier to each RG ID tags
+                // Detect this condition and remove from lane
+                let re = Regex::new(r"^([0-9]+)-[0-9A-F]+$").unwrap();
+                let cap = re.captures(lane)?;
+                let lane_u32 = u32::from_str(cap.get(1).unwrap().as_str()).unwrap();
+                Some((v.to_string(), (rg.to_string(), lane_u32)))
             }
-        } else {
-            None
         }
     }
 
