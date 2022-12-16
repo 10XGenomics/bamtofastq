@@ -400,7 +400,7 @@ impl FormatBamRecords {
         } else {
             let emit = |tag| {
                 let corrected_bc = String::from_utf8(Vec::from(tag)).unwrap();
-                let mut parts = (&corrected_bc).split('-');
+                let mut parts = corrected_bc.split('-');
                 let _ = parts.next();
                 match parts.next() {
                     Some(v) => {
