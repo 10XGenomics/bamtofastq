@@ -15,11 +15,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.63.0
+          toolchain: 1.65.0
           components: rustfmt
-          default: true
       - name: Checkout bamtofastq master
         uses: actions/checkout@master
       - name: Check Rust formatting
@@ -34,11 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.63.0
+          toolchain: 1.65.0
           components: rustfmt, clippy
-          default: true
       - name: Checkout bamtofastq master
         uses: actions/checkout@master
       - name: Check Rust formatting
@@ -46,9 +44,8 @@ jobs:
       - name: Check Cargo.lock
         uses: EmbarkStudios/cargo-deny-action@v1
       - name: lint with clippy
-        uses: actions-rs/clippy-check@v1
+        uses: 10XGenomics/clippy-check@main
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           args: |
             --all-targets --locked --
             -W clippy::wildcard_imports
