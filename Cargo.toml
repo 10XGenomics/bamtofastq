@@ -28,7 +28,7 @@ regex = "*"
 tempfile = "*"
 backtrace = "0.3"
 
-csv = "1.0.0"
+csv = "1.2.1"
 serde = "^1.0.152"
 serde_derive = "^1"
 serde_bytes = "*"
