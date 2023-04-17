@@ -29,7 +29,7 @@ tempfile = "*"
 backtrace = "0.3"
 
 csv = "1.0.0"
-serde = "^1.0.152"
+serde = "^1.0.160"
 serde_derive = "^1"
 serde_bytes = "*"
 anyhow = { version = "1.0", features = ["backtrace"] }
