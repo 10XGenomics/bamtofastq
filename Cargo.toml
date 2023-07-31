@@ -20,7 +20,7 @@ curl = ["rust-htslib/curl"]
 docopt = "*"
 rust-htslib = { version = "0.44", default-features = false }
 flate2 = { version = "1.0", features = ["zlib"], default-features = false }
-libz-sys = "1.1.10"
+libz-sys = "1.1.12"
 shardio = "0.8.2"
 bincode = "1"
 itertools = ">=0.8.0"
