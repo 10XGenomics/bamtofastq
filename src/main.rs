@@ -1189,7 +1189,7 @@ where
     let mut ncached = 0;
     for (_, items) in &reader
         .iter()?
-        .group_by(|x| x.as_ref().ok().map(|x| x.header_key.clone()))
+        .chunk_by(|x| x.as_ref().ok().map(|x| x.header_key.clone()))
     {
         // write out items
         let _item_vec: Result<Vec<SerFq>, _> = items.collect();
