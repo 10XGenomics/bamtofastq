@@ -158,7 +158,7 @@ struct SerFqSort;
 impl SortKey<SerFq> for SerFqSort {
     type Key = Vec<u8>;
 
-    fn sort_key(t: &SerFq) -> Cow<Vec<u8>> {
+    fn sort_key(t: &'_ SerFq) -> Cow<'_, Vec<u8>> {
         Cow::Borrowed(&t.header_key)
     }
 }
