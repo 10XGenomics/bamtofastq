@@ -17,7 +17,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.65.0
+          toolchain: 1.89.0
           components: rustfmt
       - name: Checkout bamtofastq master
         uses: actions/checkout@master
@@ -35,14 +35,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.65.0
+          toolchain: 1.89.0
           components: rustfmt, clippy
       - name: Checkout bamtofastq master
         uses: actions/checkout@master
       - name: Check Rust formatting
         run: cargo fmt -- --check
       - name: Check Cargo.lock
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@v2
       - name: lint with clippy
         uses: 10XGenomics/clippy-check@main
         with:
