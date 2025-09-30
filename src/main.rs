@@ -158,7 +158,7 @@ struct SerFqSort;
 impl SortKey<SerFq> for SerFqSort {
     type Key = Vec<u8>;
 
-    fn sort_key(t: &SerFq) -> Cow<Vec<u8>> {
+    fn sort_key(t: &SerFq) -> Cow<'_, Vec<u8>> {
         Cow::Borrowed(&t.header_key)
     }
 }
@@ -330,7 +330,6 @@ impl FormatBamRecords {
         let text = String::from_utf8(Vec::from(reader.header().as_bytes())).unwrap();
 
         text.lines()
-            .into_iter()
             .filter_map(|l| {
                 re.captures(l).map(|c| {
                     let read = c.get(1).unwrap().as_str().to_string();
@@ -338,7 +337,6 @@ impl FormatBamRecords {
 
                     let spec_entries = tag_list
                         .split(',')
-                        .into_iter()
                         .map(|el| {
                             if el == "SEQ:QUAL" {
                                 SpecEntry::Read
@@ -676,13 +674,13 @@ impl FastqManager {
         i1: &Option<FqRecord>,
         i2: &Option<FqRecord>,
     ) {
-        if let &Some(ref rg) = rg {
+        if let Some(rg) = rg {
             self.writers.get_mut(rg).map(|w| w.write(r1, r2, i1, i2));
         }
     }
 
     pub fn total_written(&self) -> usize {
-        self.writers.iter().map(|(_, w)| w.total_written).sum()
+        self.writers.values().map(|w| w.total_written).sum()
     }
 
     pub fn paths(&self) -> Vec<(PathBuf, PathBuf, Option<PathBuf>, Option<PathBuf>)> {
@@ -1189,7 +1187,7 @@ where
     let mut ncached = 0;
     for (_, items) in &reader
         .iter()?
-        .group_by(|x| x.as_ref().ok().map(|x| x.header_key.clone()))
+        .chunk_by(|x| x.as_ref().ok().map(|x| x.header_key.clone()))
     {
         // write out items
         let _item_vec: Result<Vec<SerFq>, _> = items.collect();
