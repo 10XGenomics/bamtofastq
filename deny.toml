@@ -46,8 +46,6 @@ yanked = "warn"
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
 ignore = [
-    "RUSTSEC-2024-0436", # paste - no longer maintained
-    "RUSTSEC-2025-0057", # fxhash - no longer maintained
     "RUSTSEC-2025-0058", # custom_derive - no longer maintained transitive dep
 ]
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
@@ -149,6 +147,26 @@ highlight = "all"
 duplicates = "deny"
 include-path-dependencies = false
 
+[[bans.skip]]
+# rust-htslib v0.50.0 depends on bio-types v1.0.4 -> thiserror v1.0.69 -> thiserror-impl v1.0.69
+name = "thiserror-impl"
+version = "1.0.69"
+
+[[bans.skip]]
+# rust-htslib v0.50.0 depends on bio-types v1.0.4 -> thiserror v1.0.69
+name = "thiserror"
+version = "1.0.69"
+
+[[bans.skip]]
+# rust-htslib v0.50.0 depends on hts-sys v2.2.0 -> bindgen v0.69.5 -> itertools v0.12.1
+name = "itertools"
+version = "0.12.1"
+
+[[bans.skip]]
+# rust-htslib v0.50.0 depends on bio-types v1.0.4 -> derive-new v0.6.0
+name = "derive-new"
+version = "0.6.0"
+
 # This section is considered when running `cargo deny check sources`.
 # More documentation about the 'sources' section can be found here:
 # https://embarkstudios.github.io/cargo-deny/checks/sources/cfg.html
@@ -164,10 +182,6 @@ unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # List of URLs for allowed Git repositories
 allow-git = [
-    # TODO: remove this
-    "https://github.com/Barandis/qd",
-    # TODO: use slipstream instead in scan-rs/umap-rs
-    "https://github.com/lazear/simd-euclidean",
 ]
 
 [sources.allow-org]
