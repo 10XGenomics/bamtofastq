@@ -41,11 +41,12 @@ const USAGE: &str = "
 10x Genomics BAM to FASTQ converter.
 
     Tool for converting 10x BAMs produced by Cell Ranger or Long Ranger back to
-    FASTQ files that can be used as inputs to re-run analysis. The FASTQ files
-    emitted by the tool should contain the same set of sequences that were
-    input to the original pipeline run, although the order will not be 
-    preserved.  The FASTQs will be emitted into a directory structure that is
-    compatible with the directories created by the 'mkfastq' tool.
+    FASTQ files that can be used as inputs to re-run analysis. Reads that are
+    too short or lack a valid adapter sequence are not written to the BAM
+    file and therefore cannot be recovered, and the order of the recovered
+    reads will not be preserved. The FASTQs will be emitted into a directory
+    structure that is compatible with the directories created by the 'mkfastq'
+    tool.
 
     10x BAMs produced by Long Ranger v2.1+ and Cell Ranger v1.2+ contain header
     fields that permit automatic conversion to the correct FASTQ sequences.
